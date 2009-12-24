@@ -1,0 +1,51 @@
++ DPRAM
+http://search.digikey.com/scripts/DkSearch/dksus.dll?Detail&name=428-2156-ND
+
++ Wiki
+http://www.avrfreaks.net/wiki/index.php/Documentation:NGW
+
++ AVR32 atngw100
+board setup code dans arch/avr32/boards/atngw100/setup.c
+
++ Kernel
+pour voir les codes d'erreurs, chercher la définition de EINVAL (dans
+include/asm-generic/errno-base.h)
+
+struct file* filp; représente un open file descriptor
+struct inode* inode; représente un fichier (sur disque, dans le vfs)
+
+Il n'est pas permis de générer des page faults dans le kernel. S'il y en a ça
+résulte en un oops.
+
++ GPIO
+#include <include/asm/gpio.h>
+Documentation/gpio.txt
+
+++ particularités atmel
+#include <mach/at32ap700x.h>
+#include <mach/portmux.h>
+
+at32_select_gpio(unsigned int pin, unsigned long flags)
+pin: GPIO_PIN_PB(0), ...
+flags: AT32_GPIOF_OUTPUT
+
++ Interface
+un seul peut ouvrir en écriture, les autres bloquent ou fail avec Device Busy
+autant que l'on veut peuvent ouvrir en lecture
+
++ Todo
+* paramétrer la taille de l'écran
+	* par une option module
+	* par des ioctl
+	* en écrivant/lisant une structure avec plus d'information
+* adaptation de blinkenlights pour utiliser le driver mplayer
+* pouvoir lire de façon non-bloquante
+* programme d'affichage ncurses de ce qui devrait être sur l'écran
+* modifier le char-dev pour pouvoir lire, de façon bloquante, lors de
+  l'écriture d'un nouveau frame
+* programme pour écrire une image
+* configuration udev pour créer le device node
+* programme pour écrire un frame dans l'écran
+* changer les gpio lorsque l'on vient d'écrire cela
+* driver char-dev dans lequel on peut écrire 24 rangées * 48 colonnes * 3
+  couleurs * 8 bits
