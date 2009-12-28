@@ -46,6 +46,10 @@ autant que l'on veut peuvent ouvrir en lecture
 * programme pour écrire une image
 * configuration udev pour créer le device node
 * programme pour écrire un frame dans l'écran
+* déplacer ledfloor.h et le code pour registerer le device dans le même
+  répertoire que <mach/at32ap700x.h> et dans le board setup code
+
++ TooDone
 * changer les gpio lorsque l'on vient d'écrire cela
 * driver char-dev dans lequel on peut écrire 24 rangées * 48 colonnes * 3
   couleurs * 8 bits

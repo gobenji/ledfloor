@@ -23,7 +23,7 @@ static ssize_t ledfloor_write(struct file *filp, const char __user *buf, size_t
 
 dev_t devid;
 struct ledfloor_dev_t {
-	uint8_t buffer[COLS][3][ROWS];
+	uint8_t buffer[COLS * 3 * ROWS];
 	struct cdev cdev;
 } ledfloor_dev;
 struct file_operations ledfloor_fops = {
@@ -96,24 +96,22 @@ static int gpio_init(void)
 }
 
 
-static void write_frame(uint8_t ***buffer)
+static void write_frame(uint8_t *buffer)
 {
-	unsigned int col, comp, row, bit;
+	unsigned int i, bit;
 
-	for (col = 0; col < COLS; col++) {
-		for (comp = 0; comp < 3; comp++) {
-			for (row = 0; row < ROWS; row++) {
-				gpio_set_value(pin_config.a[11], row);
-				gpio_set_value(pin_config.ce, 0);
-				for (bit = 0; bit < 8; bit++)
-				{
-					gpio_set_value(pin_config.data[bit],
-						buffer[col][row][comp] &&
-						1 << bit);
-				}
-				gpio_set_value(pin_config.ce, 1);
-			}
+	for (i = 0; i < COLS * 3 * ROWS; i++) {
+		for (bit = 0; bit < ARRAY_SIZE(pin_config.a); bit++)
+		{
+			gpio_set_value(pin_config.a[bit], i && 1 << bit);
 		}
+		gpio_set_value(pin_config.ce, 0);
+		for (bit = 0; bit < 8; bit++)
+		{
+			gpio_set_value(pin_config.data[bit],
+				buffer[i] && 1 << bit);
+		}
+		gpio_set_value(pin_config.ce, 1);
 	}
 }
 #else
@@ -121,7 +119,7 @@ static inline int gpio_init(void)
 {
 	return 0;
 }
-static inline void write_frame(uint8_t ***buffer)
+static inline void write_frame(uint8_t *buffer)
 {}
 #endif
 
@@ -132,7 +130,7 @@ static int __init ledfloor_init(void)
 	
 	printk(KERN_INFO "ledfloor init\n");
 	
-	memset(ledfloor_dev.buffer, 0, ROWS * COLS * 3);
+	memset(ledfloor_dev.buffer, 0, COLS * 3 * ROWS);
 	gpio_init();
 
 	errno = alloc_chrdev_region(&devid, 0, 1, "ledfloor");
@@ -188,11 +186,11 @@ static ssize_t ledfloor_read(struct file *filp, char __user *buf, size_t count, 
 {
 	struct ledfloor_dev_t *dev = filp->private_data;
 
-	if (*f_pos >= ROWS * COLS * 3) {
+	if (*f_pos >= COLS * 3 * ROWS) {
 		return 0;
 	}
-	if (*f_pos + count > ROWS * COLS * 3) {
-		count = ROWS * COLS * 3 - *f_pos;
+	if (*f_pos + count > COLS * 3 * ROWS) {
+		count = COLS * 3 * ROWS - *f_pos;
 	}
 
 	if (copy_to_user(buf, &dev->buffer[*f_pos], count)) {
@@ -200,8 +198,9 @@ static ssize_t ledfloor_read(struct file *filp, char __user *buf, size_t count, 
 	}
 
 	*f_pos += count;
-	if (*f_pos >= ROWS * COLS * 3) {
-		*f_pos -= ROWS * COLS * 3;
+	BUG_ON(*f_pos > COLS * 3 * ROWS);
+	if (*f_pos == COLS * 3 * ROWS) {
+		*f_pos = 0;
 	}
 
 	return count;
@@ -211,30 +210,28 @@ static ssize_t ledfloor_read(struct file *filp, char __user *buf, size_t count, 
 static ssize_t ledfloor_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
 {
 	struct ledfloor_dev_t *dev = filp->private_data;
-	size_t left = count;
+	size_t left_to_write = count;
 
-	if (*f_pos >= ROWS * COLS * 3) {
+	if (*f_pos >= COLS * 3 * ROWS) {
 		return 0;
 	}
 
-	while (left)
+	while (left_to_write)
 	{
-		size_t copy_count;
+		size_t copy_count = left_to_write;
 
-		if (*f_pos + left > ROWS * COLS * 3) {
-			copy_count = ROWS * COLS * 3 - *f_pos;
-		}
-		else {
-			copy_count = left;
+		if (*f_pos + copy_count > COLS * 3 * ROWS) {
+			copy_count = COLS * 3 * ROWS - *f_pos;
 		}
 
 		if (copy_from_user(&dev->buffer[*f_pos], buf, copy_count)) {
 			return -EFAULT;
 		}
-		left -= copy_count;
+		left_to_write -= copy_count;
 		*f_pos += copy_count;
-		if (*f_pos >= ROWS * COLS * 3) {
-			*f_pos -= ROWS * COLS * 3;
+		BUG_ON(*f_pos > COLS * 3 * ROWS);
+		if (*f_pos == COLS * 3 * ROWS) {
+			*f_pos = 0;
 			write_frame(dev->buffer);
 		}
 	}

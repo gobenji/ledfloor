@@ -9,7 +9,7 @@ else
 	KERNELDIR ?= /lib/modules/$(shell uname -r)/build
 	PWD := $(shell pwd)
 
-KBUILD_TARGETS	:= clean help modules modules_install
+	KBUILD_TARGETS := clean help modules modules_install
 
 .PHONY: all $(KBUILD_TARGETS)
 all: modules
