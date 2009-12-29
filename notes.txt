@@ -34,6 +34,7 @@ un seul peut ouvrir en écriture, les autres bloquent ou fail avec Device Busy
 autant que l'on veut peuvent ouvrir en lecture
 
 + Todo
+* retirer les ifdef de plateforme x86
 * paramétrer la taille de l'écran
 	* par une option module
 	* par des ioctl
