@@ -39,6 +39,8 @@ autant que l'on veut peuvent ouvrir en lecture
 	* par une option module
 	* par des ioctl
 	* en écrivant/lisant une structure avec plus d'information
+* pouvoir lire la valeur du frame limiter à partir de /sys
+	* et la paramétrer par un define et option module
 * adaptation de blinkenlights pour utiliser le driver mplayer
 * pouvoir lire de façon non-bloquante
 * programme d'affichage ncurses de ce qui devrait être sur l'écran
