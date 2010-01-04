@@ -33,21 +33,27 @@ flags: AT32_GPIOF_OUTPUT
 un seul peut ouvrir en écriture, les autres bloquent ou fail avec Device Busy
 autant que l'on veut peuvent ouvrir en lecture
 
++ Ledfloor
+convertir et afficher une image:
+convert test.png -resize 48x24 BGR:- | display -depth 8 -size 48x24 -sample
+480 BGR:-
+
 + Todo
 * retirer les ifdef de plateforme x86
+* adaptation de blinkenlights pour utiliser le driver mplayer
+* faire un vrai framebuffer device (pas vraiment utile)
 * paramétrer la taille de l'écran
 	* par une option module
 	* par des ioctl
 	* en écrivant/lisant une structure avec plus d'information
 * pouvoir lire la valeur du frame limiter à partir de /sys
-	* et la paramétrer par un define et option module
-* adaptation de blinkenlights pour utiliser le driver mplayer
+	* et la paramétrer (par un define et option module) comme un genre de
+	  vsync
 * pouvoir lire de façon non-bloquante
 * programme d'affichage ncurses de ce qui devrait être sur l'écran
 * modifier le char-dev pour pouvoir lire, de façon bloquante, lors de
   l'écriture d'un nouveau frame
 * programme pour écrire une image
-* configuration udev pour créer le device node
 * programme pour écrire un frame dans l'écran
 * déplacer ledfloor.h et le code pour registerer le device dans le même
   répertoire que <mach/at32ap700x.h> et dans le board setup code
@@ -56,3 +62,5 @@ autant que l'on veut peuvent ouvrir en lecture
 * changer les gpio lorsque l'on vient d'écrire cela
 * driver char-dev dans lequel on peut écrire 24 rangées * 48 colonnes * 3
   couleurs * 8 bits
+* code pour créer le device node (avec device_create,
+  http://kerneltrap.org/node/16688)

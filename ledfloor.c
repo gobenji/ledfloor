@@ -16,7 +16,7 @@
 #define COLS 48
 
 
-struct ledfloor_dev_t {
+static struct ledfloor_dev_t {
 	const struct ledfloor_config *config;
 
 	uint8_t buffer[COLS * 3 * ROWS];
@@ -24,6 +24,7 @@ struct ledfloor_dev_t {
 	dev_t devid;
 	struct cdev cdev;
 } dev;
+static struct class *ledfloor_class;
 
 
 #ifdef CONFIG_AVR32
@@ -200,6 +201,9 @@ static int __init platform_ledfloor_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+	device_create(ledfloor_class, NULL, dev.devid, NULL, "ledfloor%d",
+		MINOR(dev.devid));
+
 	return 0;
 }
 
@@ -208,6 +212,7 @@ static int __exit platform_ledfloor_remove(struct platform_device *pdev)
 {
 	dev_notice(&pdev->dev, "remove() called\n");
 
+	device_destroy(ledfloor_class, dev.devid);
 	cdev_del(&dev.cdev);
 	unregister_chrdev_region(dev.devid, 1);
 
@@ -254,6 +259,8 @@ static struct platform_driver ledfloor_driver = {
 static int __init ledfloor_init(void)
 {
 	printk(KERN_INFO "ledfloor init\n");
+	ledfloor_class = class_create(THIS_MODULE, "ledfloor");
+
 	return platform_driver_probe(&ledfloor_driver,
 		&platform_ledfloor_probe);
 }
@@ -302,6 +309,8 @@ static int __init ledfloor_init(void)
 
 	printk(KERN_INFO "ledfloor init\n");
 
+	ledfloor_class = class_create(THIS_MODULE, "ledfloor");
+
 	ret = -ENOMEM;
 	device = platform_device_alloc("ledfloor", 0);
 	if (!device) {
@@ -346,6 +355,7 @@ static void __exit ledfloor_exit(void)
 	printk(KERN_INFO "ledfloor exit\n");
 
 	platform_driver_unregister(&ledfloor_driver);
+	class_destroy(ledfloor_class);
 
 #ifndef CONFIG_AVR32
 	printk(KERN_INFO "ledfloor removing device \"%s.%d\"...\n",
