@@ -49,12 +49,19 @@ convert test.png -resize 48x24 BGR:- | display -depth 8 -size 48x24 -sample
 * pouvoir lire la valeur du frame limiter à partir de /sys
 	* et la paramétrer (par un define et option module) comme un genre de
 	  vsync
-* pouvoir lire de façon non-bloquante
+* implanter fsync pour que l'application puisse attendre que le frame ait été
+  "clocké" avant d'écrire le prochain frame
+  LDD p.166 "Never make a write call wait for data transmission before
+  returning"
 * programme d'affichage ncurses de ce qui devrait être sur l'écran
+* pouvoir lire de façon non-bloquante
 * modifier le char-dev pour pouvoir lire, de façon bloquante, lors de
   l'écriture d'un nouveau frame
-* programme pour écrire une image
-* programme pour écrire un frame dans l'écran
+* programme pour convertir raw RGB <-> format nécessaire pour le sortir
+	* intégrer ces changements dans le driver pour plus de simplicité. Il
+	  s'agit seulement de changer l'ordre de lecture dans le buffer et il
+	  s'agit de quelquechose de spécifique à ce device, un autre ledfloor
+	  serait peut-être implanté différement.
 * déplacer ledfloor.h et le code pour registerer le device dans le même
   répertoire que <mach/at32ap700x.h> et dans le board setup code
 
