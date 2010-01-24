@@ -15,6 +15,17 @@
 #define ROWS 24
 #define COLS 48
 
+/* Use a linear buffer index to convert an RGB buffer into an ledfloor buffer
+ * row= index % rows
+ * col= cols - 1 - index / (rows * 3)
+ * comp= 2 - index / rows % 3
+ * rgb index= row * cols * 3 + col * 3 + comp
+ */
+#define CCR_TO_RCC(_index) \
+	((_index % ROWS) * COLS * 3 + \
+	(COLS - 1 - _index / (ROWS * 3)) * 3 + \
+	(2 - _index / ROWS % 3))
+
 
 static struct ledfloor_dev_t {
 	const struct ledfloor_config *config;
@@ -68,7 +79,7 @@ static void write_frame(uint8_t *buffer, const struct ledfloor_config *config)
 		for (bit = 0; bit < ARRAY_SIZE(config->data); bit++)
 		{
 			gpio_set_value(config->data[bit],
-				buffer[i] && 1 << bit);
+				buffer[CCR_TO_RCC(i)] && 1 << bit);
 		}
 		gpio_set_value(config->ce, 1);
 	}
