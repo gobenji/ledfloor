@@ -2,7 +2,8 @@
 #define _LEDFLOOR_H
 
 
-// This contains GPIO pin numbers
+/* This contains GPIO pin numbers
+ * The structure must match what is in arch/avr32/boards/atngw100/setup.c */
 struct ledfloor_config
 {
 	int ce;
@@ -10,32 +11,4 @@ struct ledfloor_config
 	int data[8];
 };
 
-/*
-struct ledfloor_config pin_config = {
-	.ce = GPIO_PIN_PA(0),
-	.a = {
-		GPIO_PIN_PA(0),
-		GPIO_PIN_PA(0),
-		GPIO_PIN_PA(0),
-		GPIO_PIN_PA(0),
-		GPIO_PIN_PA(0),
-		GPIO_PIN_PA(0),
-		GPIO_PIN_PA(0),
-		GPIO_PIN_PA(0),
-		GPIO_PIN_PA(0),
-		GPIO_PIN_PA(0),
-		GPIO_PIN_PA(0),
-	},
-	.data = {
-		GPIO_PIN_PA(0),
-		GPIO_PIN_PA(0),
-		GPIO_PIN_PA(0),
-		GPIO_PIN_PA(0),
-		GPIO_PIN_PA(0),
-		GPIO_PIN_PA(0),
-		GPIO_PIN_PA(0),
-		GPIO_PIN_PA(0),
-	},
-};
- */
 #endif

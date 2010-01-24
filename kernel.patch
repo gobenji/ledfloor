@@ -1,0 +1,58 @@
+--- a/arch/avr32/boards/atngw100/setup.c	2010-01-24 16:48:25.000000000 -0500
++++ b/arch/avr32/boards/atngw100/setup.c	2010-01-24 16:55:30.000000000 -0500
+@@ -168,6 +168,46 @@
+ 	/* NOTE:  original ATtiny24 firmware is at address 0x0b */
+ };
+ 
++struct ledfloor_gpio_platform_data
++{
++	int ce;
++	int a[11];
++	int data[8];
++} ledfloor_gpio_data = {
++	.ce = GPIO_PIN_PA(0),
++	.a = {
++		GPIO_PIN_PA(0),
++		GPIO_PIN_PA(0),
++		GPIO_PIN_PA(0),
++		GPIO_PIN_PA(0),
++		GPIO_PIN_PA(0),
++		GPIO_PIN_PA(0),
++		GPIO_PIN_PA(0),
++		GPIO_PIN_PA(0),
++		GPIO_PIN_PA(0),
++		GPIO_PIN_PA(0),
++		GPIO_PIN_PA(0),
++	},
++	.data = {
++		GPIO_PIN_PA(0),
++		GPIO_PIN_PA(0),
++		GPIO_PIN_PA(0),
++		GPIO_PIN_PA(0),
++		GPIO_PIN_PA(0),
++		GPIO_PIN_PA(0),
++		GPIO_PIN_PA(0),
++		GPIO_PIN_PA(0),
++	},
++};
++
++static struct platform_device ledfloor_gpio_device = {
++	.name = "ledfloor",
++	.id = 0,
++	.dev = {
++		.platform_data	= &ledfloor_gpio_data,
++	},
++};
++
+ static int __init atngw100_init(void)
+ {
+ 	unsigned	i;
+@@ -205,6 +245,8 @@
+ 	platform_device_register(&i2c_gpio_device);
+ 	i2c_register_board_info(0, i2c_info, ARRAY_SIZE(i2c_info));
+ 
++	platform_device_register(&ledfloor_gpio_device);
++
+ 	return 0;
+ }
+ postcore_initcall(atngw100_init);
