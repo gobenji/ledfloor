@@ -1,8 +1,15 @@
 + DPRAM
 http://search.digikey.com/scripts/DkSearch/dksus.dll?Detail&name=428-2156-ND
 
-+ Wiki
++ Documentation
+http://www.atmel.com/dyn/products/app_notes.asp?part_id=4085
 http://www.avrfreaks.net/wiki/index.php/Documentation:NGW
+
++ Buildroot 2.3.0
+appliquer la patch à la fin de http://patchwork.kernel.org/patch/11166/ à
+toolchain_build_avr32/linux-2.6.27.6/scripts/unifdef.c
+puis
+toolchain_build_avr32/uClibc-0.9.30/extra/scripts/unifdef.c
 
 + AVR32 atngw100
 board setup code dans arch/avr32/boards/atngw100/setup.c
@@ -59,12 +66,6 @@ convert test.png -resize 48x24 RGB:- | display -depth 8 -size 48x24 -sample
   LDD p.166 "Never make a write call wait for data transmission before
   returning"
 * programme d'affichage ncurses de ce qui devrait être sur l'écran
-* io bloquant et non bloquant:
-  Avoir une waitqueue wq et un numéro de frame fnum
-  Lecture bloquante, wait_event_interruptible(wa, fnum > i), lire un frame
-  Lecture non bloquante, lire un frame
-  Écriture toujours "non-bloquante", prend du temps lorsque le frame est
-  complet et doit être écrit sur les gpio, fnum++, wake_up_interruptible(wq)
 * déplacer ledfloor.h et le code pour registerer le device dans le même
   répertoire que <mach/at32ap700x.h> et dans le board setup code
 
@@ -79,3 +80,9 @@ convert test.png -resize 48x24 RGB:- | display -depth 8 -size 48x24 -sample
 	  s'agit seulement de changer l'ordre de lecture dans le buffer et il
 	  s'agit de quelquechose de spécifique à ce device, un autre ledfloor
 	  serait peut-être implanté différement.
+* io bloquant et non bloquant:
+  Avoir une waitqueue wq et un numéro de frame fnum
+  Lecture bloquante, wait_event_interruptible(wa, fnum != i), lire un frame
+  Lecture non bloquante, lire un frame
+  Écriture toujours "non-bloquante", prend du temps lorsque le frame est
+  complet et doit être écrit sur les gpio, fnum++, wake_up_interruptible(wq)

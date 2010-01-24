@@ -1,9 +1,12 @@
+#include <asm/atomic.h>
 #include <asm/uaccess.h>
 #include <linux/cdev.h>
 #include <linux/init.h>
 #include <linux/fs.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/sched.h>
+#include <linux/wait.h>
 
 #include "ledfloor.h"
 
@@ -15,7 +18,7 @@
 #define ROWS 24
 #define COLS 48
 
-/* Use a linear buffer index to convert an RGB buffer into an ledfloor buffer
+/* Use a linear buffer index to convert an RGB buffer into a ledfloor buffer
  * row= index % rows
  * col= cols - 1 - index / (rows * 3)
  * comp= 2 - index / rows % 3
@@ -34,7 +37,12 @@ static struct ledfloor_dev_t {
 
 	dev_t devid;
 	struct cdev cdev;
-} dev;
+	wait_queue_head_t wq;
+	atomic_t fnum;
+} dev = {
+	.wq = __WAIT_QUEUE_HEAD_INITIALIZER(dev.wq),
+	.fnum = ATOMIC_INIT(0),
+};
 static struct class *ledfloor_class;
 
 
@@ -116,12 +124,18 @@ static int ledfloor_release(struct inode *inode, struct file *filp)
 static ssize_t ledfloor_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
 {
 	struct ledfloor_dev_t *dev = filp->private_data;
+	int i = atomic_read(&dev->fnum);
 
 	if (*f_pos >= COLS * 3 * ROWS) {
 		return 0;
 	}
 	if (*f_pos + count > COLS * 3 * ROWS) {
 		count = COLS * 3 * ROWS - *f_pos;
+	}
+
+	if (!(filp->f_flags & O_NONBLOCK) && *f_pos == 0 &&
+		wait_event_interruptible(dev->wq, atomic_read(&dev->fnum) != i)) {
+		return -ERESTARTSYS;
 	}
 
 	if (copy_to_user(buf, &dev->buffer[*f_pos], count)) {
@@ -164,6 +178,8 @@ static ssize_t ledfloor_write(struct file *filp, const char __user *buf, size_t 
 		if (*f_pos == COLS * 3 * ROWS) {
 			*f_pos = 0;
 			write_frame(dev->buffer, dev->config);
+			atomic_inc(&dev->fnum);
+			wake_up_interruptible(&dev->wq);
 		}
 	}
 

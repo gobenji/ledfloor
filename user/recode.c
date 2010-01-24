@@ -8,7 +8,7 @@
 #define COLS 48
 #define ROWS 24
 
-/* Convert from RGB format to ledfloor buffer format
+/* Use a linear buffer index to convert a ledfloor buffer into an RGB buffer
  * row= index / (cols * 3)
  * col= index / 3 % cols
  * comp= index % 3
@@ -18,7 +18,7 @@
 	(((COLS - 1 - (_index / 3 % COLS)) * 3 + 2 - (_index % 3)) * ROWS + \
 	 (_index / (COLS * 3)))
 
-/* Convert from ledfloor buffer format to RGB format
+/* Use a linear buffer index to convert an RGB buffer into a ledfloor buffer
  * row= index % rows
  * col= cols - 1 - index / (rows * 3)
  * comp= 2 - index / rows % 3
