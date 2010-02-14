@@ -1,4 +1,9 @@
 #include <caca.h>
+#include <fcntl.h>
+#include <sys/select.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,15 +12,56 @@
 #define ROWS 24
 
 uint8_t buffer[COLS * 3 * ROWS];
+caca_display_t* cdisplay= NULL;
+caca_dither_t* cdither= NULL;
+
+
+void cleanup()
+{
+	if (cdither != NULL)
+	{
+		caca_free_dither(cdither);
+	}
+
+	if (cdisplay != NULL)
+	{
+		caca_free_display(cdisplay);
+	}
+}
+
+
+void terminate(int signum)
+{
+	cleanup();
+	exit(EXIT_SUCCESS);
+}
 
 
 int main(int argc, char* argv[])
 {
 	size_t retval;
-	FILE* f;
-	caca_display_t* cdisplay;
+	int fd;
+	fd_set readfds;
 	caca_canvas_t* ccanvas;
-	caca_dither_t* cdither;
+	caca_event_t cevent;
+	struct timeval tv;
+	struct sigaction act= {
+		.sa_handler= &terminate,
+	};
+	int exitCode= EXIT_SUCCESS;
+
+	retval= sigaction(SIGTERM, &act, NULL);
+	if (retval == -1)
+	{
+		perror("Could not register TERM signal handler: ");
+		exit(EXIT_FAILURE);
+	}
+	retval= sigaction(SIGINT, &act, NULL);
+	if (retval == -1)
+	{
+		perror("Could not register INT signal handler: ");
+		exit(EXIT_FAILURE);
+	}
 
 	cdisplay= caca_create_display(NULL);
 	if(cdisplay == NULL)
@@ -34,46 +80,80 @@ int main(int argc, char* argv[])
 
 	if (argc > 1)
 	{
-		f= fopen(argv[1], "r");
-		if (f == NULL)
+		fd= open(argv[1], O_RDONLY);
+		if (fd == -1)
 		{
-			perror(NULL);
+			perror("Could not open input file: ");
 			exit(EXIT_FAILURE);
 		}
 	}
 	else
 	{
-		f= stdin;
+		// stdin
+		fd= 0;
 	}
+	FD_ZERO(&readfds);
+	FD_SET(fd, &readfds);
+	tv.tv_sec= 0;
+	tv.tv_usec= 1000;
 
-	while ((retval= fread(buffer, 1, sizeof(buffer), f)))
+	// libcaca messes with the terminal such that it ignores BREAK, to read
+	// ctrl-c we have to wait on a file descriptor and on libcaca events.
+	// select() can't do that, so we have to use polling, sigh..
+	while ((retval= select(fd + 1, &readfds, NULL, NULL, &tv)) != -1)
 	{
-		if (retval == 0 && feof(f))
+		unsigned int offset= 0;
+
+		caca_get_event(cdisplay, CACA_EVENT_KEY_PRESS, &cevent, 0);
+		if (caca_get_event_key_ch(&cevent) == CACA_KEY_CTRL_C)
 		{
-			break;
+			goto out;
 		}
-		if (retval < sizeof(buffer))
+
+		if (FD_ISSET(fd, &readfds))
 		{
-			if (ferror(f))
+			retval= read(fd, buffer + offset, sizeof(buffer) - offset);
+			if (retval == 0)
+			{
+				if (offset != 0)
+				{
+					fprintf(stderr, "Bitmap too short, %lu bytes missing\n", ROWS *
+						COLS * 3 - retval);
+					exitCode= EXIT_FAILURE;
+				}
+				goto out;
+			}
+			if (retval == -1)
 			{
 				perror("Error reading from source: ");
+				exitCode= EXIT_FAILURE;
+				goto out;
 			}
-			else
-			{
-				fprintf(stderr, "Bitmap too short, %lu bytes missing\n", ROWS *
-					COLS * 3 - retval);
-			}
+			offset+= retval;
 
-			caca_free_display(cdisplay);
-			exit(EXIT_FAILURE);
+			if (offset == sizeof(buffer))
+			{
+				caca_dither_bitmap(ccanvas, 0, 0,
+					caca_get_canvas_width(ccanvas),
+					caca_get_canvas_height(ccanvas), cdither, buffer);
+				caca_refresh_display(cdisplay);
+
+				offset= 0;
+			}
 		}
 
-		caca_dither_bitmap(ccanvas, 0, 0, COLS, ROWS, cdither, buffer);
-		caca_refresh_display(cdisplay);
+		FD_ZERO(&readfds);
+		FD_SET(fd, &readfds);
+		tv.tv_sec= 0;
+		tv.tv_usec= 1000;
+	}
+	if (retval == -1)
+	{
+		perror("Error waiting for input: ");
+		exitCode= EXIT_FAILURE;
 	}
 
-	caca_free_dither(cdither);
-	caca_free_display(cdisplay);
-
-	return EXIT_SUCCESS;
+out:
+	cleanup();
+	return exitCode;
 }
