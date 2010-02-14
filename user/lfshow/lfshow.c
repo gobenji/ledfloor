@@ -1,42 +1,79 @@
-#include <curses.h>
+#include <caca.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #define COLS 48
 #define ROWS 24
 
 uint8_t buffer[COLS * 3 * ROWS];
 
-int main()
+
+int main(int argc, char* argv[])
 {
 	size_t retval;
+	FILE* f;
+	caca_display_t* cdisplay;
+	caca_canvas_t* ccanvas;
+	caca_dither_t* cdither;
 
-	while (retval= fread(buffer, sizeof(buffer), 1, stdin))
+	cdisplay= caca_create_display(NULL);
+	if(cdisplay == NULL)
 	{
-		if (retval != sizeof(buffer))
+		perror("Could not create libcaca display: ");
+		exit(EXIT_FAILURE);
+	}
+	caca_set_display_title(cdisplay, "LedFloor");
+	ccanvas= caca_get_canvas(cdisplay);
+	cdither= caca_create_dither(24, COLS, ROWS, 3 * COLS, 0xff, 0xff00, 0xff0000, 0);
+	if (cdither == NULL)
+	{
+		perror("Could not create libcaca dither: ");
+		exit(EXIT_FAILURE);
+	}
+
+	if (argc > 1)
+	{
+		f= fopen(argv[1], "r");
+		if (f == NULL)
+		{
+			perror(NULL);
+			exit(EXIT_FAILURE);
+		}
+	}
+	else
+	{
+		f= stdin;
+	}
+
+	while ((retval= fread(buffer, 1, sizeof(buffer), f)))
+	{
+		if (retval == 0 && feof(f))
 		{
 			break;
 		}
-		}
-		if (mode == ENCODE)
+		if (retval < sizeof(buffer))
 		{
-			buffer[RCC_TO_CCR(index)]= value;
+			if (ferror(f))
+			{
+				perror("Error reading from source: ");
+			}
+			else
+			{
+				fprintf(stderr, "Bitmap too short, %lu bytes missing\n", ROWS *
+					COLS * 3 - retval);
+			}
+
+			caca_free_display(cdisplay);
+			exit(EXIT_FAILURE);
 		}
-		else
-		{
-			buffer[CCR_TO_RCC(index)]= value;
-		}
+
+		caca_dither_bitmap(ccanvas, 0, 0, COLS, ROWS, cdither, buffer);
+		caca_refresh_display(cdisplay);
 	}
 
-	if (feof(stdin))
-	{
-		fprintf(stderr, "Bitmap too short, %u bytes missing\n",
-			ROWS * COLS * 3 - index);
-		exit(EXIT_FAILURE);
-	}
-	else if (ferror(stdin))
-	{
-		perror("Error reading bitmap: ");
-		exit(EXIT_FAILURE);
-	}
+	caca_free_dither(cdither);
+	caca_free_display(cdisplay);
 
 	return EXIT_SUCCESS;
 }

@@ -4,7 +4,6 @@ all: encode decode
 
 clean:
 	rm -f *.o
-	rm -f *~
 	rm -f encode decode
 
 
