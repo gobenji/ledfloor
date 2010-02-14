@@ -3,7 +3,6 @@
 all: lfshow
 
 LDFLAGS=$(shell pkg-config --libs --cflags caca)
-CFLAGS=-g -Wall
 
 clean:
 	rm -f *.o
