@@ -9,5 +9,7 @@ clean:
 
 
 encode: recode.o
+	$(LINK.c) -o $@ $+
 
 decode: recode.o
+	$(LINK.c) -o $@ $+
