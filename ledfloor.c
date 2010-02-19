@@ -100,35 +100,47 @@ static int __init gpio_init(const struct ledfloor_config *config)
 }
 
 
+/* This is SUPER sketchy, it bypasses the whole gpio framework, but it's way
+ * faster
+ */
 static void write_frame(uint8_t *buffer, const struct ledfloor_config *config)
 {
-	unsigned int i, bit;
+	unsigned int i;
 	unsigned long start;
 	u32 write_mask;
 
-	// this is SUPER sketchy, it bypasses the whole gpio framework, but
-	// it's way faster
-
 	start = sysreg_read(COUNT);
+
 	// LED "B" is active low
-	//gpio_set_value(GPIO_PIN_PE(19), 0);
-	write_mask = __raw_readl((void*) (0xffe02800 + ((GPIO_PIOE_BASE >> 5) * 0x400) + PIO_OWSR));
-	__raw_writel(1 << 19, (void*) (0xffe02800 + ((GPIO_PIOE_BASE >> 5) * 0x400) + PIO_OWER));
-	__raw_writel(0 << 19, (void*) (0xffe02800 + ((GPIO_PIOE_BASE >> 5) * 0x400) + PIO_ODSR));
-	__raw_writel(write_mask, (void*) (0xffe02800 + ((GPIO_PIOE_BASE >> 5) * 0x400) + PIO_OWSR));
-	for (i = 0; i < COLS * 3 * ROWS; i++) {
-		for (bit = 0; bit < ARRAY_SIZE(config->a); bit++)
-		{
-			gpio_set_value(config->a[bit], i && 1 << bit);
+	gpio_set_value(GPIO_PIN_PE(19), 0);
+	write_mask = __raw_readl((void*) (0xffe02800 + ((GPIO_PIOB_BASE >> 5)
+				* 0x400) + PIO_OWSR));
+	__raw_writel((1 << 25) - 1, (void*) (0xffe02800 + ((GPIO_PIOB_BASE >>
+					5) * 0x400) + PIO_OWER));
+	for (i = 0; i < COLS * 3; i++) {
+		u32 values = 0;
+		unsigned int row, bit;
+
+		// todo: ajuster l'offset dans le buffer
+		for (bit = 0; bit < 12; bit++) {
+			for (row = 0; row < ROWS; row++) {
+				values <<= buffer[(ROWS - row - 1) * COLS * 3
+					+ i] & (1 << bit);
+			}
+
+			__raw_writel(values, (void*)
+				(0xffe02800 + ((GPIO_PIOB_BASE >> 5) * 0x400)
+				 + PIO_ODSR));
+
+			gpio_set_value(GPIO_PIN_PA(31), 0);
+			gpio_set_value(GPIO_PIN_PA(31), 1);
+			gpio_set_value(GPIO_PIN_PA(31), 0);
 		}
-		gpio_set_value(config->ce, 0);
-		for (bit = 0; bit < ARRAY_SIZE(config->data); bit++)
-		{
-			gpio_set_value(config->data[bit],
-				buffer[CCR_TO_RCC(i)] && 1 << bit);
-		}
-		gpio_set_value(config->ce, 1);
 	}
+	gpio_set_value(GPIO_PIN_PA(30), 0);
+	gpio_set_value(GPIO_PIN_PA(30), 1);
+	gpio_set_value(GPIO_PIN_PA(30), 0);
+	__raw_writel(write_mask, (void*) (0xffe02800 + ((GPIO_PIOB_BASE >> 5) * 0x400) + PIO_OWSR));
 	gpio_set_value(GPIO_PIN_PE(19), 1);
 
 	printk(KERN_INFO "ledfloor write_frame in %lu cycle\n",
