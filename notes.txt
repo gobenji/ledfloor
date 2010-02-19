@@ -13,6 +13,93 @@ toolchain_build_avr32/uClibc-0.9.30/extra/scripts/unifdef.c
 
 + AVR32 atngw100
 board setup code dans arch/avr32/boards/atngw100/setup.c
+console: 115200,8,N,1
+
+++ MAC address
+http://www.avrfreaks.net/wiki/index.php/Documentation:NGW/NGW100_Ethernet_PHY
+u-boot> setenv ethaddr XX:XX:XX:XX:XX:XX
+u-boot> setenv eth1addr XX:XX:XX:XX:XX:XX
+u-boot> saveenv
+
+sn:936 (cf noir, 2 headers)
+wan(eth_0) 00:04:25:1C:07:50
+lan(eth_1) 00:04:25:1C:07:51
+sn:6238 (cf bleu, 3 headers)
+wan(eth_0) 00:04:25:1C:30:BC
+lan(eth_1) 00:04:25:1C:30:BD
+
+++ Boot from SD
+http://www.avrfreaks.net/wiki/index.php/Documentation:AVR32_Linux_Development/Programming_an_SD_card_with_the_AVR32_Linux_file_system
+http://www.avrfreaks.net/wiki/index.php/Documentation:NGW/Newbie/boot_from_SD
+
+mkfs.ext2 -I 128 /dev/sdx1
+tar -x [...]
+vi etc/fstab
+
+Uboot> askenv bootcmd
+Please enter 'bootcmd':mmcinit; ext2load mmc 0:1 0x10400000 /boot/uImage; bootm
+Uboot> set bootargs 'console=ttyS0 root=/dev/mmcblk0p1 rootwait'
+Uboot> saveenv
+Uboot> boot
+
+++ Boot from flash
+http://www.avrfreaks.net/wiki/index.php/Documentation:NGW/Newbie/boot_from_flash
+Uboot> askenv bootcmd
+Please enter 'bootcmd':fsload boot/uImage;bootm
+Uboot> set bootargs 'console=ttyS0 root=/dev/mtdblock1 rootfstype=jffs2'
+Uboot> saveenv
+Uboot> boot
+
+++ Firmware upgrade
+http://www.avrfreaks.net/wiki/index.php/Documentation:NGW/Firmware_upgrade
+
+avr32program erase -fcfi@0
+avr32program program -F bin -vfcfi@0 uboot.bin
+avr32program program -F bin -vfcfi@0 -O 0x20000 ngw_jffs2_root.img
+
+++ GPIO direct access
+GPIO_PIN_PB(N)= 32 + N
+gpio_set_value(unsigned int gpio, int value)
+	+ __gpio_set_value(gpio, value)
+		chip = gpio_to_chip(gpio);
+	        chip->set(chip, gpio - chip->base, value)
+			== set_pin_state(struct gpio_chip *chip, unsigned int offset, int high)
+			struct atmel_gpio_chip *gpio = to_atmel_gpio_chip(chip);
+			u32 mask = 1 << offset;
+
+			if (high)
+				gpio_writel(gpio, OVRS, mask);
+			else
+				gpio_writel(gpio, OVRC, mask);
+
+			+ #define gpio_writel(bank, reg, value) __raw_writel(value, &__gpio_regs(bank)->reg)
+				#define __gpio_regs(bank) ((struct gpio_regs __iomem *)(bank)->regs)
+				+ __raw_writel(u32 v, volatile void __iomem *addr)
+
+gpio_writel(bank, reg, value) __raw_writel(value, &((struct gpio_regs __iomem *)(bank)->regs)->reg)
+gpio_dev[pin >> 5]
+
+static struct resource gpio_resource[] = {
+	    PBMEM(0xffd02000)
+regs = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+iomem_base = (void __iomem __force *)regs->start
+chip->regs = 0xffd02000 + ((pin >> 5) * 0x200);
+
+donc:
+__raw_writel(value, chip->regs + offsetof(gpio_regs, OVR))
+
+== analyse 2
+GPIO_PIN_PB(N)= 32 + N
+gpio_set_value(unsigned int gpio, int value)
+	+ __gpio_set_value(gpio, value)
+		chip = gpio_to_chip(gpio);
+	        chip->set(chip, gpio - chip->base, value)
+			== gpio_set(struct gpio_chip *chip, unsigned offset, int value)
+			+ #define pio_writel(port,reg,value) __raw_writel((value), (port)->regs + PIO_##reg)
+
+static struct resource pio0_resource[] = {
+	    PBMEM(0xffe02800)
+
 
 + Kernel
 pour voir les codes d'erreurs, chercher la définition de EINVAL (dans
@@ -26,6 +113,9 @@ résulte en un oops.
 
 Exemple d'un device qui utilise les GPIO, qui est un platform device et une
 autre classe (input dans ce cas): drivers/input/keyboard/gpio_keys.c
+
+Exemple d'utilisation des GPIO
+drivers/leds/leds-gpio.c
 
 + GPIO
 #include <include/asm/gpio.h>
@@ -58,6 +148,7 @@ convert test.png -resize 48x24 RGB:- | display -depth 8 -size 48x24 -sample
 	* en écrivant/lisant une structure avec plus d'information
 * race condition dans l'io s'il y a lecture d'un frame et écriture par dessus
   d'un nouveau frame
+* une seule ouverture en écriture
 * pouvoir lire la valeur du frame limiter à partir de /sys
 	* et la paramétrer (par un define et option module) comme un genre de
 	  vsync

@@ -7,7 +7,7 @@
 struct ledfloor_config
 {
 	int ce;
-	int a[11];
+	int a[12];
 	int data[8];
 };
 

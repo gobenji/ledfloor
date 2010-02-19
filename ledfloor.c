@@ -27,8 +27,18 @@
 #include "ledfloor.h"
 
 #ifdef CONFIG_AVR32
+#include <asm/io.h>
+#include <asm/sysreg.h>
 #include <linux/gpio.h>
 #include <mach/at32ap700x.h>
+
+/* Out of arch/avr32/mach-at32ap/pio.h */
+#define PIO_SODR 0x0030 // Set Output Data Register
+#define PIO_CODR 0x0034 // Clear Output Data Register
+#define PIO_ODSR 0x0038 // Output Data Status Register
+#define PIO_OWER 0x00a0 // Output Write Enable Register
+#define PIO_OWSR 0x00a8 // Output Write Status Register
+
 #endif
 
 #define ROWS 24
@@ -93,7 +103,19 @@ static int __init gpio_init(const struct ledfloor_config *config)
 static void write_frame(uint8_t *buffer, const struct ledfloor_config *config)
 {
 	unsigned int i, bit;
+	unsigned long start;
+	u32 write_mask;
 
+	// this is SUPER sketchy, it bypasses the whole gpio framework, but
+	// it's way faster
+
+	start = sysreg_read(COUNT);
+	// LED "B" is active low
+	//gpio_set_value(GPIO_PIN_PE(19), 0);
+	write_mask = __raw_readl((void*) (0xffe02800 + ((GPIO_PIOE_BASE >> 5) * 0x400) + PIO_OWSR));
+	__raw_writel(1 << 19, (void*) (0xffe02800 + ((GPIO_PIOE_BASE >> 5) * 0x400) + PIO_OWER));
+	__raw_writel(0 << 19, (void*) (0xffe02800 + ((GPIO_PIOE_BASE >> 5) * 0x400) + PIO_ODSR));
+	__raw_writel(write_mask, (void*) (0xffe02800 + ((GPIO_PIOE_BASE >> 5) * 0x400) + PIO_OWSR));
 	for (i = 0; i < COLS * 3 * ROWS; i++) {
 		for (bit = 0; bit < ARRAY_SIZE(config->a); bit++)
 		{
@@ -107,6 +129,10 @@ static void write_frame(uint8_t *buffer, const struct ledfloor_config *config)
 		}
 		gpio_set_value(config->ce, 1);
 	}
+	gpio_set_value(GPIO_PIN_PE(19), 1);
+
+	printk(KERN_INFO "ledfloor write_frame in %lu cycle\n",
+		sysreg_read(COUNT) - start);
 }
 #else
 static int __init gpio_init(const struct ledfloor_config *config)
@@ -326,6 +352,7 @@ static int __init ledfloor_init(void)
 	struct ledfloor_config pin_config = {
 		.ce = 0,
 		.a = {
+			0,
 			0,
 			0,
 			0,
