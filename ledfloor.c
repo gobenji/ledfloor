@@ -41,25 +41,13 @@
 
 #endif
 
-#define ROWS 24
-#define COLS 48
 
-/* Use a linear buffer index to convert an RGB buffer into a ledfloor buffer
- * row= index % rows
- * col= cols - 1 - index / (rows * 3)
- * comp= 2 - index / rows % 3
- * rgb index= row * cols * 3 + col * 3 + comp
- */
-#define CCR_TO_RCC(_index) \
-	((_index % ROWS) * COLS * 3 + \
-	(COLS - 1 - _index / (ROWS * 3)) * 3 + \
-	(2 - _index / ROWS % 3))
-
-
+static struct platform_device *ledfloor_gpio_device;
+static struct class *ledfloor_class;
 static struct ledfloor_dev_t {
 	const struct ledfloor_config *config;
 
-	uint8_t buffer[COLS * 3 * ROWS];
+	uint8_t buffer[LFCOLS * 3 * LFROWS];
 
 	dev_t devid;
 	struct cdev cdev;
@@ -69,36 +57,110 @@ static struct ledfloor_dev_t {
 	.wq = __WAIT_QUEUE_HEAD_INITIALIZER(dev.wq),
 	.fnum = ATOMIC_INIT(0),
 };
-static struct class *ledfloor_class;
+static struct ledfloor_config
+{
+	int blank;
+	int latch;
+	int clk;
+	int data[24];
+} ledfloor_config_data = {
+#ifdef CONFIG_AVR32
+	.blank = GPIO_PIN_PA(29),
+	.latch = GPIO_PIN_PA(30),
+	.clk = GPIO_PIN_PA(31),
+	.data = {
+		GPIO_PIN_PB(0),
+		GPIO_PIN_PB(1),
+		GPIO_PIN_PB(2),
+		GPIO_PIN_PB(3),
+		GPIO_PIN_PB(4),
+		GPIO_PIN_PB(5),
+		GPIO_PIN_PB(6),
+		GPIO_PIN_PB(7),
+		GPIO_PIN_PB(8),
+		GPIO_PIN_PB(9),
+		GPIO_PIN_PB(10),
+		GPIO_PIN_PB(11),
+		GPIO_PIN_PB(12),
+		GPIO_PIN_PB(13),
+		GPIO_PIN_PB(14),
+		GPIO_PIN_PB(15),
+		GPIO_PIN_PB(16),
+		GPIO_PIN_PB(17),
+		GPIO_PIN_PB(18),
+		GPIO_PIN_PB(19),
+		GPIO_PIN_PB(20),
+		GPIO_PIN_PB(21),
+		GPIO_PIN_PB(22),
+		GPIO_PIN_PB(23),
+	},
+#else
+#endif
+};
 
 
 #ifdef CONFIG_AVR32
+static int clk_mask, latch_mask;
+static void *clk_reg_set, *clk_reg_clear;
+static void *latch_reg_set, *latch_reg_clear;
+
 static int __init gpio_init(const struct ledfloor_config *config)
 {
 	unsigned int i;
 	int errno;
 
-	if ((errno = gpio_direction_output(config->ce, 1))) {
+	if ((errno = gpio_direction_output(config->blank, 0))) {
+		printk(KERN_ERR "ledfloor gpio_init, failed to "
+			"register blank line\n");
 		return errno;
 	}
-
-	for (i = 0; i < ARRAY_SIZE(config->a); i++)
-	{
-		if ((errno = gpio_direction_output(config->a[i], 0))) {
-			return errno;
-		}
+	if ((errno = gpio_direction_output(config->latch, 0))) {
+		printk(KERN_ERR "ledfloor gpio_init, failed to "
+			"register latch line\n");
+		return errno;
+	}
+	if ((errno = gpio_direction_output(config->clk, 0))) {
+		printk(KERN_ERR "ledfloor gpio_init, failed to "
+			"register clock line\n");
+		return errno;
 	}
 
 	for (i = 0; i < ARRAY_SIZE(config->data); i++)
 	{
 		if ((errno = gpio_direction_output(config->data[i], 0))) {
+			printk(KERN_ERR "ledfloor gpio_init, failed to "
+				"register data line %d\n", i);
 			return errno;
 		}
 	}
 
+	clk_mask = 1 << (config->clk % 32);
+	clk_reg_set = (void*) (0xffe02800 + ((config->clk >> 5) * 0x400) +
+		PIO_SODR);
+	clk_reg_clear = (void*) (0xffe02800 + ((config->clk >> 5) * 0x400) +
+		PIO_CODR);
+
+	latch_mask = 1 << (config->latch % 32);
+	latch_reg_set = (void*) (0xffe02800 + ((config->latch >> 5) * 0x400) +
+		PIO_SODR);
+	latch_reg_clear = (void*) (0xffe02800 + ((config->latch >> 5) * 0x400)
+		+ PIO_CODR);
+
 	return 0;
 }
 
+
+static inline void lfclock(const struct ledfloor_config *config) {
+	__raw_writel(clk_mask, clk_reg_clear);
+	__raw_writel(clk_mask, clk_reg_set);
+	__raw_writel(clk_mask, clk_reg_clear);
+}
+
+static inline void lflatch(const struct ledfloor_config *config) {
+	__raw_writel(latch_mask, latch_reg_clear);
+	__raw_writel(latch_mask, latch_reg_set);
+	__raw_writel(latch_mask, latch_reg_clear);
+}
 
 /* This is SUPER sketchy, it bypasses the whole gpio framework, but it's way
  * faster
@@ -113,42 +175,38 @@ static void write_frame(uint8_t *buffer, const struct ledfloor_config *config)
 
 	// LED "B" is active low
 	gpio_set_value(GPIO_PIN_PE(19), 0);
-	write_mask = __raw_readl((void*) (0xffe02800 + ((GPIO_PIOB_BASE >> 5)
+	write_mask = __raw_readl((void*) (0xffe02800 + ((config->data[0] >> 5)
 				* 0x400) + PIO_OWSR));
-	__raw_writel((1 << 25) - 1, (void*) (0xffe02800 + ((GPIO_PIOB_BASE >>
+	__raw_writel((1 << LFROWS) - 1, (void*) (0xffe02800 + ((config->data[0] >>
 					5) * 0x400) + PIO_OWER));
-	for (i = 0; i < COLS * 3; i++) {
+	for (i = 0; i < LFCOLS * 3; i++) {
 		u32 values = 0;
 		unsigned int row, bit;
 
 		// todo: ajuster l'offset dans le buffer
 		for (bit = 0; bit < 12; bit++) {
-			for (row = 0; row < ROWS; row++) {
-				values <<= buffer[(ROWS - row - 1) * COLS * 3
+			for (row = 0; row < LFROWS; row++) {
+				values <<= buffer[(LFROWS - row - 1) * LFCOLS * 3
 					+ i] & (1 << bit);
 			}
 
 			__raw_writel(values, (void*)
-				(0xffe02800 + ((GPIO_PIOB_BASE >> 5) * 0x400)
+				(0xffe02800 + ((config->data[0] >> 5) * 0x400)
 				 + PIO_ODSR));
-
-			gpio_set_value(GPIO_PIN_PA(31), 0);
-			gpio_set_value(GPIO_PIN_PA(31), 1);
-			gpio_set_value(GPIO_PIN_PA(31), 0);
+			lfclock(config);
 		}
 	}
-	gpio_set_value(GPIO_PIN_PA(30), 0);
-	gpio_set_value(GPIO_PIN_PA(30), 1);
-	gpio_set_value(GPIO_PIN_PA(30), 0);
+	lflatch(config);
 	__raw_writel(write_mask, (void*) (0xffe02800 + ((GPIO_PIOB_BASE >> 5) * 0x400) + PIO_OWSR));
 	gpio_set_value(GPIO_PIN_PE(19), 1);
 
-	printk(KERN_INFO "ledfloor write_frame in %lu cycle\n",
+	printk(KERN_INFO "ledfloor write_frame in %lu cycles\n",
 		sysreg_read(COUNT) - start);
 }
 #else
 static int __init gpio_init(const struct ledfloor_config *config)
 {
+	printk(KERN_INFO "ledfloor gpio_init\n");
 	return 0;
 }
 static void write_frame(uint8_t *buffer, const struct ledfloor_config *config)
@@ -180,11 +238,11 @@ static ssize_t ledfloor_read(struct file *filp, char __user *buf, size_t count, 
 	struct ledfloor_dev_t *dev = filp->private_data;
 	int i = atomic_read(&dev->fnum);
 
-	if (*f_pos >= COLS * 3 * ROWS) {
+	if (*f_pos >= LFCOLS * 3 * LFROWS) {
 		return 0;
 	}
-	if (*f_pos + count > COLS * 3 * ROWS) {
-		count = COLS * 3 * ROWS - *f_pos;
+	if (*f_pos + count > LFCOLS * 3 * LFROWS) {
+		count = LFCOLS * 3 * LFROWS - *f_pos;
 	}
 
 	if (!(filp->f_flags & O_NONBLOCK) && *f_pos == 0 &&
@@ -197,8 +255,8 @@ static ssize_t ledfloor_read(struct file *filp, char __user *buf, size_t count, 
 	}
 
 	*f_pos += count;
-	BUG_ON(*f_pos > COLS * 3 * ROWS);
-	if (*f_pos == COLS * 3 * ROWS) {
+	BUG_ON(*f_pos > LFCOLS * 3 * LFROWS);
+	if (*f_pos == LFCOLS * 3 * LFROWS) {
 		*f_pos = 0;
 	}
 
@@ -211,7 +269,7 @@ static ssize_t ledfloor_write(struct file *filp, const char __user *buf, size_t 
 	struct ledfloor_dev_t *dev = filp->private_data;
 	size_t left_to_write = count;
 
-	if (*f_pos >= COLS * 3 * ROWS) {
+	if (*f_pos >= LFCOLS * 3 * LFROWS) {
 		return 0;
 	}
 
@@ -219,8 +277,8 @@ static ssize_t ledfloor_write(struct file *filp, const char __user *buf, size_t 
 	{
 		size_t copy_count = left_to_write;
 
-		if (*f_pos + copy_count > COLS * 3 * ROWS) {
-			copy_count = COLS * 3 * ROWS - *f_pos;
+		if (*f_pos + copy_count > LFCOLS * 3 * LFROWS) {
+			copy_count = LFCOLS * 3 * LFROWS - *f_pos;
 		}
 
 		if (copy_from_user(&dev->buffer[*f_pos], buf, copy_count)) {
@@ -228,8 +286,8 @@ static ssize_t ledfloor_write(struct file *filp, const char __user *buf, size_t 
 		}
 		left_to_write -= copy_count;
 		*f_pos += copy_count;
-		BUG_ON(*f_pos > COLS * 3 * ROWS);
-		if (*f_pos == COLS * 3 * ROWS) {
+		BUG_ON(*f_pos > LFCOLS * 3 * LFROWS);
+		if (*f_pos == LFCOLS * 3 * LFROWS) {
 			*f_pos = 0;
 			write_frame(dev->buffer, dev->config);
 			atomic_inc(&dev->fnum);
@@ -264,7 +322,7 @@ static int __init platform_ledfloor_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	memset(dev.buffer, 0, COLS * 3 * ROWS);
+	memset(dev.buffer, 0, LFCOLS * 3 * LFROWS);
 
 	ret = alloc_chrdev_region(&dev.devid, 0, 1, "ledfloor");
 	if (ret < 0) {
@@ -327,25 +385,6 @@ static int platform_ledfloor_resume(struct platform_device *pdev)
 #endif
 
 
-#ifdef CONFIG_AVR32
-static struct platform_driver ledfloor_driver = {
-	.remove		= __exit_p(&platform_ledfloor_remove),
-	.suspend	= &platform_ledfloor_suspend,
-	.resume		= &platform_ledfloor_resume,
-	.driver	= {
-		.name	= "ledfloor",
-	},
-};
-
-static int __init ledfloor_init(void)
-{
-	printk(KERN_INFO "ledfloor init\n");
-	ledfloor_class = class_create(THIS_MODULE, "ledfloor");
-
-	return platform_driver_probe(&ledfloor_driver,
-		&platform_ledfloor_probe);
-}
-#else
 static struct platform_driver ledfloor_driver = {
 	.probe		= &platform_ledfloor_probe,
 	.remove		= __exit_p(&platform_ledfloor_remove),
@@ -356,46 +395,16 @@ static struct platform_driver ledfloor_driver = {
 	},
 };
 
-static struct platform_device *device;
-
 static int __init ledfloor_init(void)
 {
 	int ret;
-	struct ledfloor_config pin_config = {
-		.ce = 0,
-		.a = {
-			0,
-			0,
-			0,
-			0,
-			0,
-			0,
-			0,
-			0,
-			0,
-			0,
-			0,
-			0,
-		},
-		.data = {
-			0,
-			0,
-			0,
-			0,
-			0,
-			0,
-			0,
-			0,
-		},
-	};
 
 	printk(KERN_INFO "ledfloor init\n");
-
 	ledfloor_class = class_create(THIS_MODULE, "ledfloor");
 
 	ret = -ENOMEM;
-	device = platform_device_alloc("ledfloor", 0);
-	if (!device) {
+	ledfloor_gpio_device = platform_device_alloc("ledfloor", 0);
+	if (!ledfloor_gpio_device) {
 		goto fail;
 	}
 
@@ -404,15 +413,15 @@ static int __init ledfloor_init(void)
 	 * structure, so it's ok to pass variables defined on
 	 * the stack here.
 	 */
-	ret = platform_device_add_data(device, &pin_config,
-		sizeof(pin_config));
+	ret = platform_device_add_data(ledfloor_gpio_device,
+		&ledfloor_config_data, sizeof(ledfloor_config_data));
 	if (ret) {
 		goto fail;
 	}
 
 	printk(KERN_INFO "ledfloor registering device \"%s.%d\"...\n",
-		device->name, device->id);
-	ret = platform_device_add(device);
+		ledfloor_gpio_device->name, ledfloor_gpio_device->id);
+	ret = platform_device_add(ledfloor_gpio_device);
 	if (ret) {
 		goto fail;
 	}
@@ -424,11 +433,12 @@ fail:
 	 * directly. Any dynamically allocated resources and
 	 * platform data will be freed automatically.
 	 */
-	platform_device_put(device);
+	platform_device_put(ledfloor_gpio_device);
+
+	class_destroy(ledfloor_class);
 
 	return ret;
 }
-#endif
 module_init(ledfloor_init);
 
 
@@ -439,12 +449,10 @@ static void __exit ledfloor_exit(void)
 	platform_driver_unregister(&ledfloor_driver);
 	class_destroy(ledfloor_class);
 
-#ifndef CONFIG_AVR32
 	printk(KERN_INFO "ledfloor removing device \"%s.%d\"...\n",
-		device->name, device->id);
+		ledfloor_gpio_device->name, ledfloor_gpio_device->id);
 
-	platform_device_del(device);
-#endif
+	platform_device_del(ledfloor_gpio_device);
 }
 module_exit(ledfloor_exit);
 
