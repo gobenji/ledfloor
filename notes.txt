@@ -158,9 +158,8 @@ convert test.png -resize 48x24 RGB:- | display -depth 8 -size 48x24 -sample
   returning"
   pour la fonction de timing, voir qu'est-ce que .udelay fait dans
   i2c_gpio_platform_data
+* blank lors du unload
 * option module, ioctl et fichier sys pour rotate
-* faire que le platform register soit dans le module, pas besoin d'un kernel
-  custom
 
 + TooDone
 * driver char-dev dans lequel on peut écrire 24 rangées * 48 colonnes * 3
@@ -182,3 +181,5 @@ convert test.png -resize 48x24 RGB:- | display -depth 8 -size 48x24 -sample
 * déplacer ledfloor.h et le code pour registerer le device dans le même
   répertoire que <mach/at32ap700x.h> et dans le board setup code
 * programme d'affichage ncurses de ce qui devrait être sur l'écran
+* faire que le platform register soit dans le module, pas besoin d'un kernel
+  custom

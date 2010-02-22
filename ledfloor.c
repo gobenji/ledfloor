@@ -31,6 +31,27 @@
 #include <asm/sysreg.h>
 #include <linux/gpio.h>
 #include <mach/at32ap700x.h>
+#else
+/* Out of arch/avr32/mach-at32ap/include/mach/at32ap700x.h */
+#define GPIO_PIOA_BASE	(0)
+#define GPIO_PIOB_BASE	(GPIO_PIOA_BASE + 32)
+#define GPIO_PIOC_BASE	(GPIO_PIOB_BASE + 32)
+#define GPIO_PIOD_BASE	(GPIO_PIOC_BASE + 32)
+#define GPIO_PIOE_BASE	(GPIO_PIOD_BASE + 32)
+
+#define GPIO_PIN_PA(N)	(GPIO_PIOA_BASE + (N))
+#define GPIO_PIN_PB(N)	(GPIO_PIOB_BASE + (N))
+#define GPIO_PIN_PC(N)	(GPIO_PIOC_BASE + (N))
+#define GPIO_PIN_PD(N)	(GPIO_PIOD_BASE + (N))
+#define GPIO_PIN_PE(N)	(GPIO_PIOE_BASE + (N))
+
+#define gpio_direction_output(gpio, value) 0
+#define __raw_writel(v, addr)
+#define sysreg_read(reg) 0
+#define COUNT 0
+#define gpio_set_value(gpio, value)
+#define __raw_readl(addr) 0
+#endif
 
 /* Out of arch/avr32/mach-at32ap/pio.h */
 #define PIO_SODR 0x0030 // Set Output Data Register
@@ -38,8 +59,6 @@
 #define PIO_ODSR 0x0038 // Output Data Status Register
 #define PIO_OWER 0x00a0 // Output Write Enable Register
 #define PIO_OWSR 0x00a8 // Output Write Status Register
-
-#endif
 
 
 static struct platform_device *ledfloor_gpio_device;
@@ -62,15 +81,14 @@ static struct ledfloor_config
 	int blank;
 	int latch;
 	int clk;
-	int data[24];
+	int data[LFROWS];
 } ledfloor_config_data = {
-#ifdef CONFIG_AVR32
 	.blank = GPIO_PIN_PA(29),
 	.latch = GPIO_PIN_PA(30),
 	.clk = GPIO_PIN_PA(31),
 	.data = {
-		GPIO_PIN_PB(0),
 		GPIO_PIN_PB(1),
+		GPIO_PIN_PB(0),
 		GPIO_PIN_PB(2),
 		GPIO_PIN_PB(3),
 		GPIO_PIN_PB(4),
@@ -94,20 +112,25 @@ static struct ledfloor_config
 		GPIO_PIN_PB(22),
 		GPIO_PIN_PB(23),
 	},
-#else
-#endif
 };
 
-
-#ifdef CONFIG_AVR32
 static int clk_mask, latch_mask;
 static void *clk_reg_set, *clk_reg_clear;
 static void *latch_reg_set, *latch_reg_clear;
+static size_t row_offsets[LFROWS];
+static void *data_reg;
 
-static int __init gpio_init(const struct ledfloor_config *config)
+/* The next functions access GPIO registers directly to bypass many function
+ * call levels and, more importantly, write many bits at once on one port.
+ * This is sketchy because it bypasses the whole gpio framework, but it's way
+ * faster. The addresses and register offsets were obtained by looking at the
+ * PIO driver and confirmed with the AP7000 datasheet.
+ */
+static int __init gpio_init(const struct ledfloor_config *config, bool rotate)
 {
 	unsigned int i;
 	int errno;
+	unsigned int reverse_index[LFROWS];
 
 	if ((errno = gpio_direction_output(config->blank, 0))) {
 		printk(KERN_ERR "ledfloor gpio_init, failed to "
@@ -146,75 +169,102 @@ static int __init gpio_init(const struct ledfloor_config *config)
 	latch_reg_clear = (void*) (0xffe02800 + ((config->latch >> 5) * 0x400)
 		+ PIO_CODR);
 
+	/* reverse_index[i] = buffer row that contains the pixel output on
+	 * data line i */
+	for (i = 0; i < LFROWS; i++) {
+		reverse_index[config->data[i] & ((1 << 5) - 1)] = rotate ? LFROWS - 1
+			- i : i;
+	}
+	/* row_offsets[i] = offset relative to a pixel on the first row to get
+	 * the pixel on the row output on data line i */
+	for (i = 0; i < LFROWS; i++) {
+		row_offsets[i] = reverse_index[i] * LFCOLS * 3;
+	}
+
+	data_reg = (void*) (0xffe02800 + ((config->data[0] >> 5) * 0x400) +
+		PIO_ODSR);
+
 	return 0;
 }
 
-
-static inline void lfclock(const struct ledfloor_config *config) {
+static inline void lfclock(void) {
 	__raw_writel(clk_mask, clk_reg_clear);
 	__raw_writel(clk_mask, clk_reg_set);
 	__raw_writel(clk_mask, clk_reg_clear);
 }
 
-static inline void lflatch(const struct ledfloor_config *config) {
+static inline void lflatch(void) {
 	__raw_writel(latch_mask, latch_reg_clear);
 	__raw_writel(latch_mask, latch_reg_set);
 	__raw_writel(latch_mask, latch_reg_clear);
 }
 
-/* This is SUPER sketchy, it bypasses the whole gpio framework, but it's way
- * faster
- */
-static void write_frame(uint8_t *buffer, const struct ledfloor_config *config)
+static inline void output_col_component(uint8_t *buffer, const unsigned int i)
 {
-	unsigned int i;
-	unsigned long start;
-	u32 write_mask;
+	int j, k;
+	uint8_t component_values[LFROWS];
+	uint32_t output_values[8];
 
-	start = sysreg_read(COUNT);
+	for (j = 0; j < ARRAY_SIZE(component_values); j++) {
+		component_values[j] = buffer[i + row_offsets[j]];
+	}
+
+	memset(output_values, 0, sizeof(output_values));
+	for (k = 0; k < ARRAY_SIZE(output_values); k++) {
+		for (j = ARRAY_SIZE(component_values) - 1; j >= 0; j--) {
+			output_values[k] <<= 1;
+			output_values[k] |= component_values[j] & 1;
+			component_values[j] >>= 1;
+		}
+	}
+
+	// Output starts with MSB and upconverts 8 to 12 bits
+	for (k = 8 - 1; k >= 0; k--) {
+		__raw_writel(output_values[k], data_reg);
+		lfclock();
+	}
+	for (k = 0; k < 4; k++) {
+		__raw_writel(0, data_reg);
+		lfclock();
+	}
+}
+
+static void write_frame(uint8_t *buffer, const struct ledfloor_config *config,
+	bool rotate)
+{
+	int i;
+	uint32_t write_mask;
+	//unsigned long start;
+
+	//start = sysreg_read(COUNT);
 
 	// LED "B" is active low
 	gpio_set_value(GPIO_PIN_PE(19), 0);
+
 	write_mask = __raw_readl((void*) (0xffe02800 + ((config->data[0] >> 5)
 				* 0x400) + PIO_OWSR));
 	__raw_writel((1 << LFROWS) - 1, (void*) (0xffe02800 + ((config->data[0] >>
 					5) * 0x400) + PIO_OWER));
-	for (i = 0; i < LFCOLS * 3; i++) {
-		u32 values = 0;
-		unsigned int row, bit;
 
-		// todo: ajuster l'offset dans le buffer
-		for (bit = 0; bit < 12; bit++) {
-			for (row = 0; row < LFROWS; row++) {
-				values <<= buffer[(LFROWS - row - 1) * LFCOLS * 3
-					+ i] & (1 << bit);
-			}
-
-			__raw_writel(values, (void*)
-				(0xffe02800 + ((config->data[0] >> 5) * 0x400)
-				 + PIO_ODSR));
-			lfclock(config);
+	if (rotate) {
+		for (i = 0; i < LFCOLS * 3; i++) {
+			output_col_component(buffer, i);
 		}
 	}
-	lflatch(config);
-	__raw_writel(write_mask, (void*) (0xffe02800 + ((GPIO_PIOB_BASE >> 5) * 0x400) + PIO_OWSR));
+	else {
+		for (i = LFCOLS * 3 - 1; i >= 0; i--) {
+			output_col_component(buffer, i);
+		}
+	}
+	lflatch();
+
+	__raw_writel(write_mask, (void*) (0xffe02800 + ((GPIO_PIOB_BASE >> 5) *
+				0x400) + PIO_OWSR));
+
 	gpio_set_value(GPIO_PIN_PE(19), 1);
 
-	printk(KERN_INFO "ledfloor write_frame in %lu cycles\n",
-		sysreg_read(COUNT) - start);
+	//printk(KERN_INFO "ledfloor write_frame in %lu cycles\n", sysreg_read(COUNT) - start);
 }
-#else
-static int __init gpio_init(const struct ledfloor_config *config)
-{
-	printk(KERN_INFO "ledfloor gpio_init\n");
-	return 0;
-}
-static void write_frame(uint8_t *buffer, const struct ledfloor_config *config)
-{
-	printk(KERN_INFO "ledfloor write_frame\n");
-}
-#endif
-
 
 static int ledfloor_open(struct inode *inode, struct file *filp)
 {
@@ -226,12 +276,10 @@ static int ledfloor_open(struct inode *inode, struct file *filp)
 	return 0;
 }
 
-
 static int ledfloor_release(struct inode *inode, struct file *filp)
 {
 	return 0;
 }
-
 
 static ssize_t ledfloor_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
 {
@@ -263,7 +311,6 @@ static ssize_t ledfloor_read(struct file *filp, char __user *buf, size_t count, 
 	return count;
 }
 
-
 static ssize_t ledfloor_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
 {
 	struct ledfloor_dev_t *dev = filp->private_data;
@@ -289,7 +336,7 @@ static ssize_t ledfloor_write(struct file *filp, const char __user *buf, size_t 
 		BUG_ON(*f_pos > LFCOLS * 3 * LFROWS);
 		if (*f_pos == LFCOLS * 3 * LFROWS) {
 			*f_pos = 0;
-			write_frame(dev->buffer, dev->config);
+			write_frame(dev->buffer, dev->config, false);
 			atomic_inc(&dev->fnum);
 			wake_up_interruptible(&dev->wq);
 		}
@@ -308,7 +355,6 @@ struct file_operations ledfloor_fops = {
 	.release = ledfloor_release,
 };
 
-
 static int __init platform_ledfloor_probe(struct platform_device *pdev)
 {
 	int ret;
@@ -316,7 +362,7 @@ static int __init platform_ledfloor_probe(struct platform_device *pdev)
 	
 	dev_notice(&pdev->dev, "probe() called\n");
 	
-	ret= gpio_init(dev.config);
+	ret= gpio_init(dev.config, false);
 	if (ret < 0) {
 		dev_warn(&pdev->dev, "gpio_init() failed\n");
 		return ret;
