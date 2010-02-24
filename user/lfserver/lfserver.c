@@ -95,7 +95,7 @@ int main(int argc, char* argv[])
 		{
 			if (feof(stdin))
 			{
-				fprintf(stderr, "Couldn't write frame, %u bytes missing", LFROWS * LFCOLS * 3 - retval);
+				fprintf(stderr, "Couldn't write complete frame\n");
 				abort();
 			}
 			else if (ferror(stdin))
