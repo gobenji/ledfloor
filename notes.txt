@@ -160,6 +160,17 @@ convert test.png -resize 48x24 RGB:- | display -depth 8 -size 48x24 -sample
   i2c_gpio_platform_data
 * blank lors du unload
 * option module, ioctl et fichier sys pour rotate
+* contrôle du blank..?
+* détecter le packet loss (netstat -su, ou avec des numeros de séquence
+  ajoutés à la fin du frame et modifier lfdemo pour pouvoir ajuster le frame
+  rate
+* pour configurer les lignes, donner le numéro de banque du port et le numéro
+  de chaque pins, pour pas pouvoir configurer des pins sur deux ports
+  différents
+* correction gamma
+* nouvelle image de boot
+* pouvoir configurer avec ioctl un délai de clock et de latch, utiliser la
+  fonction de délai
 
 + TooDone
 * driver char-dev dans lequel on peut écrire 24 rangées * 48 colonnes * 3
@@ -183,3 +194,5 @@ convert test.png -resize 48x24 RGB:- | display -depth 8 -size 48x24 -sample
 * programme d'affichage ncurses de ce qui devrait être sur l'écran
 * faire que le platform register soit dans le module, pas besoin d'un kernel
   custom
+* renverser l'ordre des lignes
+* réorganiser le driver pour tenir compte d'une clock longue

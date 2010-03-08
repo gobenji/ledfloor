@@ -60,6 +60,10 @@
 #define PIO_OWER 0x00a0 // Output Write Enable Register
 #define PIO_OWSR 0x00a8 // Output Write Status Register
 
+#define GPIO_HW_BASE 0xffe02800
+
+#define GPIO_BANK(N) (N >> 5)
+#define GPIO_INDEX(N) (N % 32)
 
 static struct platform_device *ledfloor_gpio_device;
 static struct class *ledfloor_class;
@@ -87,31 +91,58 @@ static struct ledfloor_config
 	.latch = GPIO_PIN_PA(30),
 	.clk = GPIO_PIN_PA(31),
 	.data = {
-		GPIO_PIN_PB(22),
-		GPIO_PIN_PB(23),
-		GPIO_PIN_PB(20),
-		GPIO_PIN_PB(21),
-		GPIO_PIN_PB(18),
-		GPIO_PIN_PB(19),
-		GPIO_PIN_PB(8),
-		GPIO_PIN_PB(9),
-		GPIO_PIN_PB(10),
-		GPIO_PIN_PB(7),
-		GPIO_PIN_PB(6),
-		GPIO_PIN_PB(11),
-		GPIO_PIN_PB(13),
-		GPIO_PIN_PB(14),
-		GPIO_PIN_PB(17),
-		GPIO_PIN_PB(12),
-		GPIO_PIN_PB(15),
-		GPIO_PIN_PB(16),
-		GPIO_PIN_PB(1),
-		GPIO_PIN_PB(2),
-		GPIO_PIN_PB(5),
-		GPIO_PIN_PB(0),
-		GPIO_PIN_PB(3),
 		GPIO_PIN_PB(4),
+		GPIO_PIN_PB(3),
+		GPIO_PIN_PB(0),
+		GPIO_PIN_PB(5),
+		GPIO_PIN_PB(2),
+		GPIO_PIN_PB(1),
+		GPIO_PIN_PB(16),
+		GPIO_PIN_PB(15),
+		GPIO_PIN_PB(12),
+		GPIO_PIN_PB(17),
+		GPIO_PIN_PB(14),
+		GPIO_PIN_PB(13),
+		GPIO_PIN_PB(11),
+		GPIO_PIN_PB(6),
+		GPIO_PIN_PB(7),
+		GPIO_PIN_PB(10),
+		GPIO_PIN_PB(9),
+		GPIO_PIN_PB(8),
+		GPIO_PIN_PB(19),
+		GPIO_PIN_PB(18),
+		GPIO_PIN_PB(21),
+		GPIO_PIN_PB(20),
+		GPIO_PIN_PB(23),
+		GPIO_PIN_PB(22),
 	},
+};
+/* Gamma correction table, gamma = 2.2, upconvert 8 to 12 bits
+ * Generated using:
+ * python -c 'print ", ".join([str(int(round((float(i) / 255)**(2.2) * 4095)))
+ * for i in range(256)])'
+ */
+static uint16_t gamma_c[256] = {
+	0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 9, 11, 12, 14, 15, 17,
+	19, 21, 23, 25, 27, 29, 32, 34, 37, 40, 43, 46, 49, 52, 55, 59, 62,
+	66, 70, 73, 77, 82, 86, 90, 95, 99, 104, 109, 114, 119, 124, 129, 135,
+	140, 146, 152, 158, 164, 170, 176, 182, 189, 196, 202, 209, 216, 224,
+	231, 238, 246, 254, 261, 269, 277, 286, 294, 302, 311, 320, 328, 337,
+	347, 356, 365, 375, 384, 394, 404, 414, 424, 435, 445, 456, 467, 477,
+	488, 500, 511, 522, 534, 545, 557, 569, 581, 594, 606, 619, 631, 644,
+	657, 670, 683, 697, 710, 724, 738, 752, 766, 780, 794, 809, 823, 838,
+	853, 868, 884, 899, 914, 930, 946, 962, 978, 994, 1011, 1027, 1044,
+	1061, 1078, 1095, 1112, 1130, 1147, 1165, 1183, 1201, 1219, 1237,
+	1256, 1274, 1293, 1312, 1331, 1350, 1370, 1389, 1409, 1429, 1449,
+	1469, 1489, 1509, 1530, 1551, 1572, 1593, 1614, 1635, 1657, 1678,
+	1700, 1722, 1744, 1766, 1789, 1811, 1834, 1857, 1880, 1903, 1926,
+	1950, 1974, 1997, 2021, 2045, 2070, 2094, 2119, 2143, 2168, 2193,
+	2219, 2244, 2270, 2295, 2321, 2347, 2373, 2400, 2426, 2453, 2479,
+	2506, 2534, 2561, 2588, 2616, 2644, 2671, 2700, 2728, 2756, 2785,
+	2813, 2842, 2871, 2900, 2930, 2959, 2989, 3019, 3049, 3079, 3109,
+	3140, 3170, 3201, 3232, 3263, 3295, 3326, 3358, 3390, 3421, 3454,
+	3486, 3518, 3551, 3584, 3617, 3650, 3683, 3716, 3750, 3784, 3818,
+	3852, 3886, 3920, 3955, 3990, 4025, 4060, 4095
 };
 
 static int clk_mask, latch_mask;
@@ -157,23 +188,23 @@ static int __init gpio_init(const struct ledfloor_config *config, bool rotate)
 		}
 	}
 
-	clk_mask = 1 << (config->clk % 32);
-	clk_reg_set = (void*) (0xffe02800 + ((config->clk >> 5) * 0x400) +
+	clk_mask = 1 << GPIO_INDEX(config->clk);
+	clk_reg_set = (void*) (GPIO_HW_BASE + GPIO_BANK(config->clk) * 0x400 +
 		PIO_SODR);
-	clk_reg_clear = (void*) (0xffe02800 + ((config->clk >> 5) * 0x400) +
-		PIO_CODR);
-
-	latch_mask = 1 << (config->latch % 32);
-	latch_reg_set = (void*) (0xffe02800 + ((config->latch >> 5) * 0x400) +
-		PIO_SODR);
-	latch_reg_clear = (void*) (0xffe02800 + ((config->latch >> 5) * 0x400)
+	clk_reg_clear = (void*) (GPIO_HW_BASE + GPIO_BANK(config->clk) * 0x400
 		+ PIO_CODR);
+
+	latch_mask = 1 << GPIO_INDEX(config->latch);
+	latch_reg_set = (void*) (GPIO_HW_BASE + GPIO_BANK(config->latch) *
+		0x400 + PIO_SODR);
+	latch_reg_clear = (void*) (GPIO_HW_BASE + GPIO_BANK(config->latch) *
+		0x400 + PIO_CODR);
 
 	/* reverse_index[i] = buffer row that contains the pixel output on
 	 * data line i */
 	for (i = 0; i < LFROWS; i++) {
-		reverse_index[config->data[i] & ((1 << 5) - 1)] = rotate ? LFROWS - 1
-			- i : i;
+		reverse_index[config->data[i] & ((1 << 5) - 1)] =
+			rotate ? LFROWS - 1 - i : i;
 	}
 	/* row_offsets[i] = offset relative to a pixel on the first row to get
 	 * the pixel on the row output on data line i */
@@ -181,51 +212,44 @@ static int __init gpio_init(const struct ledfloor_config *config, bool rotate)
 		row_offsets[i] = reverse_index[i] * LFCOLS * 3;
 	}
 
-	data_reg = (void*) (0xffe02800 + ((config->data[0] >> 5) * 0x400) +
-		PIO_ODSR);
+	data_reg = (void*) (GPIO_HW_BASE + GPIO_BANK(config->data[0]) * 0x400
+		+ PIO_ODSR);
 
 	return 0;
-}
-
-static inline void lfclock(void) {
-	__raw_writel(clk_mask, clk_reg_clear);
-	__raw_writel(clk_mask, clk_reg_set);
-	__raw_writel(clk_mask, clk_reg_clear);
-}
-
-static inline void lflatch(void) {
-	__raw_writel(latch_mask, latch_reg_clear);
-	__raw_writel(latch_mask, latch_reg_set);
-	__raw_writel(latch_mask, latch_reg_clear);
 }
 
 static inline void output_col_component(uint8_t *buffer, const unsigned int i)
 {
 	int j, k;
-	uint8_t component_values[LFROWS];
-	uint32_t output_values[8];
+	/* Only the first 12 bits may be set */
+	uint16_t component_values[LFROWS];
 
 	for (j = 0; j < ARRAY_SIZE(component_values); j++) {
-		component_values[j] = buffer[i + row_offsets[j]];
+		component_values[j] = gamma_c[buffer[i + row_offsets[j]]];
 	}
 
-	memset(output_values, 0, sizeof(output_values));
-	for (k = 0; k < ARRAY_SIZE(output_values); k++) {
+	for (k = 0; k < 12; k++) {
+		uint32_t output_value= 0;
+
+		__raw_writel(clk_mask, clk_reg_clear);
+
 		for (j = ARRAY_SIZE(component_values) - 1; j >= 0; j--) {
-			output_values[k] <<= 1;
-			output_values[k] |= component_values[j] & 1;
+			output_value <<= 1;
+			output_value |= component_values[j] & 1;
 			component_values[j] >>= 1;
+			/*
+			asm(
+				"bld %1, %2\n"
+				"bst %0, %3\n"
+				: "=r" (output_value)
+				: "r" (component_values[j]), "r" (j), "r" (k)
+				: "cc");
+			*/
 		}
-	}
+		__raw_writel(output_value, data_reg);
 
-	// Output starts with MSB and upconverts 8 to 12 bits
-	for (k = 8 - 1; k >= 0; k--) {
-		__raw_writel(output_values[k], data_reg);
-		lfclock();
-	}
-	for (k = 0; k < 4; k++) {
-		__raw_writel(0, data_reg);
-		lfclock();
+		__raw_writel(clk_mask, clk_reg_set);
+		// ndelay, udelay
 	}
 }
 
@@ -246,6 +270,7 @@ static void write_frame(uint8_t *buffer, const struct ledfloor_config *config,
 	__raw_writel((1 << LFROWS) - 1, (void*) (0xffe02800 + ((config->data[0] >>
 					5) * 0x400) + PIO_OWER));
 
+	__raw_writel(latch_mask, latch_reg_clear);
 	if (rotate) {
 		for (i = 0; i < LFCOLS * 3; i++) {
 			output_col_component(buffer, i);
@@ -256,7 +281,7 @@ static void write_frame(uint8_t *buffer, const struct ledfloor_config *config,
 			output_col_component(buffer, i);
 		}
 	}
-	lflatch();
+	__raw_writel(latch_mask, latch_reg_set);
 
 	__raw_writel(write_mask, (void*) (0xffe02800 + ((GPIO_PIOB_BASE >> 5) *
 				0x400) + PIO_OWSR));
