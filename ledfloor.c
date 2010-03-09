@@ -17,6 +17,7 @@
 #include <asm/atomic.h>
 #include <asm/uaccess.h>
 #include <linux/cdev.h>
+#include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/fs.h>
 #include <linux/module.h>
@@ -68,7 +69,7 @@
 static struct platform_device *ledfloor_gpio_device;
 static struct class *ledfloor_class;
 static struct ledfloor_dev_t {
-	const struct ledfloor_config *config;
+	struct ledfloor_config *config;
 
 	uint8_t buffer[LFCOLS * 3 * LFROWS];
 
@@ -86,6 +87,9 @@ static struct ledfloor_config
 	int latch;
 	int clk;
 	int data[LFROWS];
+	bool rotate; // 180 degrees rotation at no extra cost
+	unsigned int latch_ndelay;
+	unsigned int clk_ndelay;
 } ledfloor_config_data = {
 	.blank = GPIO_PIN_PA(29),
 	.latch = GPIO_PIN_PA(30),
@@ -116,6 +120,9 @@ static struct ledfloor_config
 		GPIO_PIN_PB(23),
 		GPIO_PIN_PB(22),
 	},
+	.rotate = false,
+	.latch_ndelay = 0,
+	.clk_ndelay = 200,
 };
 /* Gamma correction table, gamma = 2.2, upconvert 8 to 12 bits
  * Generated using:
@@ -123,6 +130,31 @@ static struct ledfloor_config
  * for i in range(256)])'
  */
 static uint16_t gamma_c[256] = {
+	// linéaire
+	/*
+	0, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 240,
+	256, 272, 288, 304, 320, 336, 352, 368, 384, 400, 416, 432, 448, 464, 480,
+	496, 512, 528, 544, 560, 576, 592, 608, 624, 640, 656, 672, 688, 704, 720,
+	736, 752, 768, 784, 800, 816, 832, 848, 864, 880, 896, 912, 928, 944, 960,
+	976, 992, 1008, 1024, 1040, 1056, 1072, 1088, 1104, 1120, 1136, 1152,
+	1168, 1184, 1200, 1216, 1232, 1248, 1264, 1280, 1296, 1312, 1328, 1344,
+	1360, 1376, 1392, 1408, 1424, 1440, 1456, 1472, 1488, 1504, 1520, 1536,
+	1552, 1568, 1584, 1600, 1616, 1632, 1648, 1664, 1680, 1696, 1712, 1728,
+	1744, 1760, 1776, 1792, 1808, 1824, 1840, 1856, 1872, 1888, 1904, 1920,
+	1936, 1952, 1968, 1984, 2000, 2016, 2032, 2048, 2064, 2080, 2096, 2112,
+	2128, 2144, 2160, 2176, 2192, 2208, 2224, 2240, 2256, 2272, 2288, 2304,
+	2320, 2336, 2352, 2368, 2384, 2400, 2416, 2432, 2448, 2464, 2480, 2496,
+	2512, 2528, 2544, 2560, 2576, 2592, 2608, 2624, 2640, 2656, 2672, 2688,
+	2704, 2720, 2736, 2752, 2768, 2784, 2800, 2816, 2832, 2848, 2864, 2880,
+	2896, 2912, 2928, 2944, 2960, 2976, 2992, 3008, 3024, 3040, 3056, 3072,
+	3088, 3104, 3120, 3136, 3152, 3168, 3184, 3200, 3216, 3232, 3248, 3264,
+	3280, 3296, 3312, 3328, 3344, 3360, 3376, 3392, 3408, 3424, 3440, 3456,
+	3472, 3488, 3504, 3520, 3536, 3552, 3568, 3584, 3600, 3616, 3632, 3648,
+	3664, 3680, 3696, 3712, 3728, 3744, 3760, 3776, 3792, 3808, 3824, 3840,
+	3856, 3872, 3888, 3904, 3920, 3936, 3952, 3968, 3984, 4000, 4016, 4032,
+	4048, 4064, 4080
+	*/
+	// gamma = 2.2
 	0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 9, 11, 12, 14, 15, 17,
 	19, 21, 23, 25, 27, 29, 32, 34, 37, 40, 43, 46, 49, 52, 55, 59, 62,
 	66, 70, 73, 77, 82, 86, 90, 95, 99, 104, 109, 114, 119, 124, 129, 135,
@@ -157,7 +189,7 @@ static void *data_reg;
  * faster. The addresses and register offsets were obtained by looking at the
  * PIO driver and confirmed with the AP7000 datasheet.
  */
-static int __init gpio_init(const struct ledfloor_config *config, bool rotate)
+static int __init gpio_init(const struct ledfloor_config *config)
 {
 	unsigned int i;
 	int errno;
@@ -204,7 +236,7 @@ static int __init gpio_init(const struct ledfloor_config *config, bool rotate)
 	 * data line i */
 	for (i = 0; i < LFROWS; i++) {
 		reverse_index[config->data[i] & ((1 << 5) - 1)] =
-			rotate ? LFROWS - 1 - i : i;
+			config->rotate ? LFROWS - 1 - i : i;
 	}
 	/* row_offsets[i] = offset relative to a pixel on the first row to get
 	 * the pixel on the row output on data line i */
@@ -218,7 +250,8 @@ static int __init gpio_init(const struct ledfloor_config *config, bool rotate)
 	return 0;
 }
 
-static inline void output_col_component(uint8_t *buffer, const unsigned int i)
+static inline void output_col_component(uint8_t *buffer, const struct
+	ledfloor_config *config, const unsigned int i)
 {
 	int j, k;
 	/* Only the first 12 bits may be set */
@@ -229,32 +262,24 @@ static inline void output_col_component(uint8_t *buffer, const unsigned int i)
 	}
 
 	for (k = 0; k < 12; k++) {
-		uint32_t output_value= 0;
+		uint32_t output_value = 0;
 
 		__raw_writel(clk_mask, clk_reg_clear);
 
 		for (j = ARRAY_SIZE(component_values) - 1; j >= 0; j--) {
 			output_value <<= 1;
-			output_value |= component_values[j] & 1;
-			component_values[j] >>= 1;
-			/*
-			asm(
-				"bld %1, %2\n"
-				"bst %0, %3\n"
-				: "=r" (output_value)
-				: "r" (component_values[j]), "r" (j), "r" (k)
-				: "cc");
-			*/
+			output_value |= (component_values[j] & (1 << 11)) >> 11;
+			component_values[j] <<= 1;
 		}
 		__raw_writel(output_value, data_reg);
 
+		ndelay(config->clk_ndelay);
 		__raw_writel(clk_mask, clk_reg_set);
-		// ndelay, udelay
+		ndelay(config->clk_ndelay);
 	}
 }
 
-static void write_frame(uint8_t *buffer, const struct ledfloor_config *config,
-	bool rotate)
+static void write_frame(uint8_t *buffer, const struct ledfloor_config *config)
 {
 	int i;
 	uint32_t write_mask;
@@ -271,17 +296,19 @@ static void write_frame(uint8_t *buffer, const struct ledfloor_config *config,
 					5) * 0x400) + PIO_OWER));
 
 	__raw_writel(latch_mask, latch_reg_clear);
-	if (rotate) {
+	if (config->rotate) {
 		for (i = 0; i < LFCOLS * 3; i++) {
-			output_col_component(buffer, i);
+			output_col_component(buffer, config, i);
 		}
 	}
 	else {
 		for (i = LFCOLS * 3 - 1; i >= 0; i--) {
-			output_col_component(buffer, i);
+			output_col_component(buffer, config, i);
 		}
 	}
+	ndelay(config->latch_ndelay);
 	__raw_writel(latch_mask, latch_reg_set);
+	ndelay(config->latch_ndelay);
 
 	__raw_writel(write_mask, (void*) (0xffe02800 + ((GPIO_PIOB_BASE >> 5) *
 				0x400) + PIO_OWSR));
@@ -361,7 +388,7 @@ static ssize_t ledfloor_write(struct file *filp, const char __user *buf, size_t 
 		BUG_ON(*f_pos > LFCOLS * 3 * LFROWS);
 		if (*f_pos == LFCOLS * 3 * LFROWS) {
 			*f_pos = 0;
-			write_frame(dev->buffer, dev->config, false);
+			write_frame(dev->buffer, dev->config);
 			atomic_inc(&dev->fnum);
 			wake_up_interruptible(&dev->wq);
 		}
@@ -370,12 +397,56 @@ static ssize_t ledfloor_write(struct file *filp, const char __user *buf, size_t 
 	return count;
 }
 
+static int ledfloor_ioctl(struct inode *inode, struct file *filp, unsigned
+	int cmd, unsigned long arg)
+{
+	struct ledfloor_dev_t *dev = filp->private_data;
+	int err = 0;
+	int retval = 0;
+
+	if (_IOC_TYPE(cmd) != LF_IOC_MAGIC) {
+		return -ENOTTY;
+	}
+	if (_IOC_NR(cmd) >= LF_IOC_NB) {
+		return -ENOTTY;
+	}
+
+	if (_IOC_DIR(cmd) & _IOC_READ) {
+		err = !access_ok(VERIFY_WRITE, (void __user *) arg,
+			_IOC_SIZE(cmd));
+	}
+	else if (_IOC_DIR(cmd) & _IOC_WRITE) {
+		err = !access_ok(VERIFY_READ, (void __user *) arg,
+			_IOC_SIZE(cmd));
+	}
+	if (err) {
+		return -EFAULT;
+	}
+
+	switch (cmd) {
+		case LF_IOCSLATCHNDELAY:
+			retval = __get_user(dev->config->latch_ndelay,
+				(unsigned int __user *) arg);
+			break;
+
+		case LF_IOCSCLKNDELAY:
+			retval = __get_user(dev->config->latch_ndelay,
+				(unsigned int __user *) arg);
+			break;
+
+		default:
+			/* Command number has already been checked */
+			BUG();
+	}
+
+	return retval;
+}
+
 struct file_operations ledfloor_fops = {
 	.owner = THIS_MODULE,
-	//.llseek = ledfloor_llseek,
 	.read = ledfloor_read,
 	.write = ledfloor_write,
-	//.ioctl = ledfloor_ioctl,
+	.ioctl = ledfloor_ioctl,
 	.open = ledfloor_open,
 	.release = ledfloor_release,
 };
@@ -387,7 +458,7 @@ static int __init platform_ledfloor_probe(struct platform_device *pdev)
 	
 	dev_notice(&pdev->dev, "probe() called\n");
 	
-	ret= gpio_init(dev.config, false);
+	ret= gpio_init(dev.config);
 	if (ret < 0) {
 		dev_warn(&pdev->dev, "gpio_init() failed\n");
 		return ret;
@@ -479,10 +550,8 @@ static int __init ledfloor_init(void)
 		goto fail;
 	}
 
-	/*
-	 * The data is copied into a new dynamically allocated
-	 * structure, so it's ok to pass variables defined on
-	 * the stack here.
+	/* Note that the data is copied into a new dynamically allocated
+	 * structure.
 	 */
 	ret = platform_device_add_data(ledfloor_gpio_device,
 		&ledfloor_config_data, sizeof(ledfloor_config_data));

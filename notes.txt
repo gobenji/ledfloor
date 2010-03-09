@@ -164,11 +164,20 @@ convert test.png -resize 48x24 RGB:- | display -depth 8 -size 48x24 -sample
 * détecter le packet loss (netstat -su, ou avec des numeros de séquence
   ajoutés à la fin du frame et modifier lfdemo pour pouvoir ajuster le frame
   rate
+* nouvelle image de boot
+* correction gamma
+* lfdemo sélectionne avec 1234.. black, white, red, green, blue, gamma, plasma
+  qa,sw,ed {increase, decrease} {frame rate limiter sur le client, latch
+  ndelay, clock ndelay} affiche le frame rate atteint (raffraîchi à chaque
+  seconde) envoi des numéros de frame
+* lfserver
+  configure latch et clock delay avec ioctl
+  -b background,
+  sinon en mode verbose, affiche le frame rate (raffraîchi de la même façon)
+  et affiche le packet loss s'il y a des numéros de frame
 * pour configurer les lignes, donner le numéro de banque du port et le numéro
   de chaque pins, pour pas pouvoir configurer des pins sur deux ports
   différents
-* correction gamma
-* nouvelle image de boot
 * pouvoir configurer avec ioctl un délai de clock et de latch, utiliser la
   fonction de délai
 

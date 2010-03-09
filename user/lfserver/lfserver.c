@@ -31,6 +31,7 @@ int main(int argc, char* argv[])
 	if (retval == -1)
 	{
 		pferror(errno, "Can't stat ledfloor device");
+		// fopen will create a file if it doesn't exist, avoid that and exit
 		abort();
 	}
 	ledF= fopen(devPath, "a");
