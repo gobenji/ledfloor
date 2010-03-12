@@ -1,11 +1,14 @@
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -19,30 +22,24 @@ void pferror(const int errsv, const char* format, ...);
 
 int main(int argc, char* argv[])
 {
-	int netFd;
-	FILE* ledF;
 	int retval;
+	int frameFd, ctlListenFd, ledFd;
 	struct sockaddr_in addr;
 	in_port_t portNum= 3456;
+	int option;
 	const char* devPath= "/dev/ledfloor0";
-	struct stat statBuf;
+	bool verbose= true;
+	int ctlFd= 0;
 
-	retval= stat(devPath, &statBuf);
-	if (retval == -1)
-	{
-		pferror(errno, "Can't stat ledfloor device");
-		// fopen will create a file if it doesn't exist, avoid that and exit
-		abort();
-	}
-	ledF= fopen(devPath, "a");
-	if (ledF == NULL)
+	ledFd= open(devPath, O_WRONLY);
+	if (ledFd == -1)
 	{
 		pferror(errno, "Can't open ledfloor device");
 		abort();
 	}
 
-	netFd= socket(AF_INET, SOCK_DGRAM, 0);
-	if (netFd == -1)
+	frameFd= socket(AF_INET, SOCK_DGRAM, 0);
+	if (frameFd == -1)
 	{
 		pferror(errno, "line %d", __LINE__);
 		abort();
@@ -51,66 +48,192 @@ int main(int argc, char* argv[])
 	addr.sin_family= AF_INET;
 	addr.sin_port= htons(portNum);
 	addr.sin_addr.s_addr= htonl(INADDR_ANY);
-	retval= bind(netFd, (struct sockaddr*) &addr, sizeof(addr));
+	retval= bind(frameFd, (struct sockaddr*) &addr, sizeof(addr));
 	if (retval == -1)
 	{
 		pferror(errno, "line %d", __LINE__);
 		abort();
 	}
 
+	ctlListenFd= socket(AF_INET, SOCK_STREAM, 0);
+	if (ctlListenFd == -1)
 	{
-		char* addrString;
+		pferror(errno, "line %d", __LINE__);
+		abort();
+	}
+	option= 1;
+	retval= setsockopt(ctlListenFd, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
+	if (retval == -1)
+	{
+		pferror(errno, "line %d", __LINE__);
+		abort();
+	}
 
-		addrString= inet_ntoa(addr.sin_addr);
-		//printf("Listenning for data on %s:%u...\n", addrString, portNum);
+	retval= bind(ctlListenFd, (struct sockaddr*) &addr, sizeof(addr));
+	if (retval == -1)
+	{
+		pferror(errno, "line %d", __LINE__);
+		abort();
+	}
+
+	retval= listen(ctlListenFd, 1);
+	if (retval == -1)
+	{
+		pferror(errno, "line %d", __LINE__);
+		abort();
+	}
+
+	if (verbose)
+	{
+		printf("Listenning on %s:%u...\n", inet_ntoa(addr.sin_addr), portNum);
 	}
 
 	buffer= malloc(LFCOLS * 3 * LFROWS);
 	while(true)
 	{
-		size_t done;
+		size_t done= 0;
+		fd_set rdfds;
+		int max= 0;
 
-		// read a frame
-		done= 0;
-		while (done < LFCOLS * 3 * LFROWS)
+		FD_ZERO(&rdfds);
+		FD_SET(frameFd, &rdfds);
+		FD_SET(ctlListenFd, &rdfds);
+		max= frameFd > ctlListenFd ? frameFd : ctlListenFd;
+		if (ctlFd != 0)
 		{
+			FD_SET(ctlFd, &rdfds);
+			max= ctlFd > max ? ctlFd : max;
+		}
+
+		retval= select(max + 1, &rdfds, 0, 0, 0);
+		if (retval == -1)
+		{
+			pferror(errno, "line %d", __LINE__);
+			abort();
+		}
+
+		if (FD_ISSET(frameFd, &rdfds))
+		{
+			// read a frame
 			struct sockaddr_in srcAddr;
 			socklen_t addrLen;
 
 			addrLen= sizeof(srcAddr);
-			retval= recvfrom(netFd, buffer + done, LFCOLS * 3 * LFROWS - done, 0, (struct sockaddr*) &srcAddr, &addrLen);
+			retval= recvfrom(frameFd, buffer + done, LFCOLS * 3 * LFROWS - done, 0, (struct sockaddr*) &srcAddr, &addrLen);
 			if (retval == -1)
 			{
 				pferror(errno, "Error reading from network");
 				abort();
 			}
 
-			done-= retval;
+			done+= retval;
 
-			//printf("Received %d bytes from %s\n", retval, inet_ntoa(srcAddr.sin_addr));
-		}
-
-		// write a frame
-		retval= fwrite(buffer, LFCOLS * 3 * LFROWS, 1, ledF);
-		if (retval < 1)
-		{
-			if (feof(stdin))
+			if (verbose)
 			{
-				fprintf(stderr, "Couldn't write complete frame\n");
+				printf("Received %d bytes from %s\n", retval, inet_ntoa(srcAddr.sin_addr));
+			}
+
+			// write a frame
+			if (done == LFCOLS * 3 * LFROWS)
+			{
+				done= 0;
+				while (done < LFCOLS * 3 * LFROWS)
+				{
+					retval= write(ledFd, buffer + done, LFCOLS * 3 * LFROWS - done);
+					if (retval == -1)
+					{
+						pferror(errno, "Error writing to ledfloor");
+						abort();
+					}
+
+					done+= retval;
+				}
+				if (verbose)
+				{
+					printf("Wrote a frame\n");
+				}
+				done= 0;
+			}
+		}
+		else if (FD_ISSET(ctlListenFd, &rdfds))
+		{
+			struct sockaddr_in srcAddr;
+			socklen_t addrLen;
+
+			if (ctlFd != 0)
+			{
+				retval= close(ctlFd);
+				if (retval == -1)
+				{
+					pferror(errno, "line %d", __LINE__);
+					abort();
+				}
+			}
+
+			addrLen= sizeof(srcAddr);
+			ctlFd= accept(ctlListenFd, (struct sockaddr*) &srcAddr, &addrLen);
+			if (retval == -1)
+			{
+				pferror(errno, "line %d", __LINE__);
 				abort();
 			}
-			else if (ferror(stdin))
+
+			if (verbose)
 			{
-				pferror(errno, "Error writing to ledfloor");
+				printf("New control connection from %s\n", inet_ntoa(srcAddr.sin_addr));
+			}
+		}
+		else if (FD_ISSET(ctlFd, &rdfds))
+		{
+			struct command_t command;
+
+			retval= read(ctlFd, &command, sizeof(command));
+			if (retval == -1)
+			{
+				pferror(errno, "line %d", __LINE__);
 				abort();
+			}
+			else if (retval == 0)
+			{
+				retval= close(ctlFd);
+				if (retval == -1)
+				{
+					pferror(errno, "line %d", __LINE__);
+					abort();
+				}
+				ctlFd= 0;
+				if (verbose)
+				{
+					printf("Closed control connection\n");
+				}
+			}
+			else if (retval < sizeof(command))
+			{
+				fprintf(stderr, "Warning: command missing %u bytes\n",
+					sizeof(command) - retval);
 			}
 			else
 			{
-				abort();
+				command.latch_ndelay= ntohl(command.latch_ndelay);
+				retval= ioctl(ledFd, LF_IOCSLATCHNDELAY, &command.latch_ndelay);
+				if (retval == -1)
+				{
+					pferror(errno, "line %d", __LINE__);
+					abort();
+				}
+				command.clk_ndelay= ntohl(command.clk_ndelay);
+				retval= ioctl(ledFd, LF_IOCSCLKNDELAY, &command.clk_ndelay);
+				if (retval == -1)
+				{
+					pferror(errno, "line %d", __LINE__);
+					abort();
+				}
 			}
 		}
-		fflush(ledF);
-		//printf("Wrote a frame\n");
+		else
+		{
+			fprintf(stderr, "Warning: no fd is set after select\n");
+		}
 	}
 }
 

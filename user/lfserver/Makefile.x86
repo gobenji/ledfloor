@@ -1,0 +1,12 @@
+.PHONY : all clean
+
+all: lfserver
+
+CFLAGS= -Wall -g -I../../
+
+clean:
+	rm -f *.o
+	rm -f lfserver
+
+
+lfserver: lfserver.c
