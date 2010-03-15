@@ -121,8 +121,8 @@ static struct ledfloor_config
 		GPIO_PIN_PB(22),
 	},
 	.rotate = false,
-	.latch_ndelay = 0,
-	.clk_ndelay = 200,
+	.latch_ndelay = 2000,
+	.clk_ndelay = 2000,
 };
 /* Gamma correction table, gamma = 2.2, upconvert 8 to 12 bits and reverse the
  * bit order
@@ -244,7 +244,7 @@ static inline void output_col_component(uint8_t *buffer, const struct
 		for (j = ARRAY_SIZE(component_values) - 1; j >= 0; j--) {
 			output_value <<= 1;
 			output_value |= component_values[j] & 1;
-			component_values[j] <<= 1;
+			component_values[j] >>= 1;
 		}
 		__raw_writel(output_value, data_reg);
 
@@ -418,6 +418,14 @@ static int ledfloor_ioctl(struct inode *inode, struct file *filp, unsigned
 #ifndef CONFIG_AVR32
 			printk(KERN_INFO "ledfloor clk_ndelay = %u\n",
 				dev->config->clk_ndelay);
+#endif
+			break;
+
+		case LF_IOCSGAMMATABLE:
+			retval = copy_from_user(gamma_c, (uint16_t __user *)
+				arg, sizeof(gamma_c));
+#ifndef CONFIG_AVR32
+			printk(KERN_INFO "ledfloor new gamma\n");
 #endif
 			break;
 
