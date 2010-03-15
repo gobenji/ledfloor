@@ -28,13 +28,13 @@ static int frame = 0;
 
 int main(int argc, const char* argv[])
 {
-	int netFd;
+	int netFd0, netFd1;
 	int retval;
 	struct sockaddr_in dst;
 	in_port_t portNum= 3456;
 	struct addrinfo hints, * results;
 	char* dstString;
-	const char* hostName;
+	const char* hostName0, *hostName1= NULL;
 	uint8_t* buffer= NULL;
 	int randomFd;
 	unsigned int seed;
@@ -51,7 +51,7 @@ int main(int argc, const char* argv[])
 	}
 	caca_set_display_title(cdisplay, "LedFloor");
 	ccanvas= caca_get_canvas(cdisplay);
-	cdither= caca_create_dither(24, LFCOLS, LFROWS, 3 * LFCOLS, 0xff, 0xff00, 0xff0000, 0);
+	cdither= caca_create_dither(24, LFCOLS, LFROWS * 2, 3 * LFCOLS, 0xff, 0xff00, 0xff0000, 0);
 	if (cdither == NULL)
 	{
 		perror("Could not create libcaca dither: ");
@@ -60,15 +60,20 @@ int main(int argc, const char* argv[])
 
 	if (argc < 2)
 	{
-		hostName= "localhost";
+		hostName0= "localhost";
 	}
-	else if (argc == 2)
+	else if (argc >= 2 && argc <=4)
 	{
-		hostName= argv[1];
+		hostName0= argv[1];
+
+		if (argc >= 3)
+		{
+			hostName1= argv[2];
+		}
 	}
 	else
 	{
-		fprintf(stderr, "Too many arguments. Usage: %s <host>\n", argv[0]);
+		fprintf(stderr, "Too many arguments. Usage: %s [host] [host]\n", argv[0]);
 	}
 
 	randomFd= open("/dev/urandom", O_RDONLY);
@@ -90,7 +95,7 @@ int main(int argc, const char* argv[])
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family= AF_INET;
-	retval= getaddrinfo(hostName, NULL, &hints, &results);
+	retval= getaddrinfo(hostName0, NULL, &hints, &results);
 	if (retval != 0)
 	{
 		if (retval == EAI_SYSTEM)
@@ -109,14 +114,14 @@ int main(int argc, const char* argv[])
 	dst.sin_port= htons(portNum);
 	dstString= inet_ntoa(dst.sin_addr);
 
-	netFd= socket(AF_INET, SOCK_DGRAM, 0);
-	if (netFd == -1)
+	netFd0= socket(AF_INET, SOCK_DGRAM, 0);
+	if (netFd0 == -1)
 	{
 		pferror(errno, "line %d", __LINE__);
 		abort();
 	}
 
-	retval= connect(netFd, (struct sockaddr*) &dst, sizeof(dst));
+	retval= connect(netFd0, (struct sockaddr*) &dst, sizeof(dst));
 	if (retval == -1)
 	{
 		pferror(errno, "line %d", __LINE__);
@@ -125,6 +130,48 @@ int main(int argc, const char* argv[])
 
 	printf("Transmitting to %s:%u...\n", dstString, portNum);
 
+	// begin copy
+	if (hostName1)
+	{
+		memset(&hints, 0, sizeof(hints));
+		hints.ai_family= AF_INET;
+		retval= getaddrinfo(hostName1, NULL, &hints, &results);
+		if (retval != 0)
+		{
+			if (retval == EAI_SYSTEM)
+			{
+				pferror(errno, "line %d", __LINE__);
+			}
+			else
+			{
+				fprintf(stderr, "line %d: %s\n", __LINE__, gai_strerror(retval));
+			}
+			abort();
+		}
+		memcpy(&dst.sin_addr, &((struct sockaddr_in*) results->ai_addr)->sin_addr, sizeof(dst.sin_addr));
+		freeaddrinfo(results);
+		dst.sin_family= AF_INET;
+		dst.sin_port= htons(portNum);
+		dstString= inet_ntoa(dst.sin_addr);
+
+		netFd1= socket(AF_INET, SOCK_DGRAM, 0);
+		if (netFd1 == -1)
+		{
+			pferror(errno, "line %d", __LINE__);
+			abort();
+		}
+
+		retval= connect(netFd1, (struct sockaddr*) &dst, sizeof(dst));
+		if (retval == -1)
+		{
+			pferror(errno, "line %d", __LINE__);
+			abort();
+		}
+
+		printf("Transmitting to %s:%u...\n", dstString, portNum);
+	}
+	// end copy
+
 	plasma(PREPARE, &buffer);
 	plasma(INIT, &buffer);
 	while(true)
@@ -132,7 +179,7 @@ int main(int argc, const char* argv[])
 		plasma(UPDATE, &buffer);
 		plasma(RENDER, &buffer);
 
-		retval= send(netFd, buffer, LFROWS * LFCOLS * 3, 0);
+		retval= send(netFd0, buffer, LFROWS * LFCOLS * 3, 0);
 		if (retval == - 1)
 		{
 			pferror(errno, "line %d", __LINE__);
@@ -142,6 +189,21 @@ int main(int argc, const char* argv[])
 		{
 			fprintf(stderr, "Couldn't write complete frame\n");
 			abort();
+		}
+
+		if (hostName1)
+		{
+			retval= send(netFd1, buffer + LFROWS * LFCOLS * 3, LFROWS * LFCOLS * 3, 0);
+			if (retval == - 1)
+			{
+				pferror(errno, "line %d", __LINE__);
+				abort();
+			}
+			if (retval < LFROWS * LFCOLS * 3)
+			{
+				fprintf(stderr, "Couldn't write complete frame\n");
+				abort();
+			}
 		}
 
 		caca_dither_bitmap(ccanvas, 0, 0,
@@ -218,7 +280,7 @@ static void pferror(const int errsv, const char* format, ...)
 
 /* The plasma effect */
 #define TABLEX (LFCOLS * 2)
-#define TABLEY (LFROWS * 2)
+#define TABLEY (LFROWS * 2 * 2)
 static uint8_t table[TABLEX * TABLEY];
 
 static void do_plasma(uint8_t *, double, double, double, double, double,
@@ -260,8 +322,8 @@ static void plasma(enum action action, uint8_t** buffer)
         break;
 
     case INIT:
-        index_screen = malloc(LFCOLS * LFROWS * sizeof(uint8_t));
-        color_screen = malloc(LFCOLS * LFROWS * 3 * sizeof(uint8_t));
+        index_screen = malloc(LFCOLS * LFROWS * 2 * sizeof(uint8_t));
+        color_screen = malloc(LFCOLS * LFROWS * 3 * 2 * sizeof(uint8_t));
         break;
 
     case UPDATE:
@@ -309,7 +371,7 @@ static void do_plasma(uint8_t *pixels, double x_1, double y_1,
             * t2 = table + X2 + Y2 * TABLEX,
             * t3 = table + X3 + Y3 * TABLEX;
 
-    for(y = 0; y < LFROWS; y++)
+    for(y = 0; y < LFROWS * 2; y++)
     {
         unsigned int x;
         uint8_t * tmp = pixels + y * LFCOLS;
@@ -324,7 +386,7 @@ static void do_palette(uint8_t* color_screen, const uint8_t* index_screen,
 {
 	unsigned int i;
 
-	for (i= 0; i < LFROWS * LFCOLS; i++)
+	for (i= 0; i < LFROWS * 2 * LFCOLS; i++)
 	{
 		color_screen[3 * i]= red[index_screen[i]];
 		color_screen[3 * i + 1]= green[index_screen[i]];
