@@ -3,6 +3,7 @@
 all: lfserver
 
 CFLAGS= -Wall -g -I../../
+LDFLAGS= -lm
 
 clean:
 	rm -f *.o

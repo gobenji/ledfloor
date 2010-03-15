@@ -1,6 +1,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <math.h>
 #include <netinet/in.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -20,6 +21,8 @@ char* buffer= NULL;
 
 void pferror(const int errsv, const char* format, ...);
 
+uint16_t reverse12(uint16_t a);
+
 int main(int argc, char* argv[])
 {
 	int retval;
@@ -28,7 +31,7 @@ int main(int argc, char* argv[])
 	in_port_t portNum= 3456;
 	int option;
 	const char* devPath= "/dev/ledfloor0";
-	bool verbose= true;
+	bool verbose= false;
 	int ctlFd= 0;
 
 	ledFd= open(devPath, O_WRONLY);
@@ -209,11 +212,14 @@ int main(int argc, char* argv[])
 			}
 			else if (retval < sizeof(command))
 			{
-				fprintf(stderr, "Warning: command missing %u bytes\n",
+				fprintf(stderr, "Warning: command missing %lu bytes\n",
 					sizeof(command) - retval);
 			}
 			else
 			{
+				static uint16_t gamma_c[256];
+				int i;
+
 				command.latch_ndelay= ntohl(command.latch_ndelay);
 				retval= ioctl(ledFd, LF_IOCSLATCHNDELAY, &command.latch_ndelay);
 				if (retval == -1)
@@ -223,6 +229,17 @@ int main(int argc, char* argv[])
 				}
 				command.clk_ndelay= ntohl(command.clk_ndelay);
 				retval= ioctl(ledFd, LF_IOCSCLKNDELAY, &command.clk_ndelay);
+				if (retval == -1)
+				{
+					pferror(errno, "line %d", __LINE__);
+					abort();
+				}
+
+				for (i= 0; i < 256; i++)
+				{
+					gamma_c[i]= reverse12(floor(pow((double) i / 255., command.gamma) * 4095));
+				}
+				retval= ioctl(ledFd, LF_IOCSGAMMATABLE, gamma_c);
 				if (retval == -1)
 				{
 					pferror(errno, "line %d", __LINE__);
@@ -295,4 +312,20 @@ void pferror(const int errsv, const char* format, ...)
 			p= np;
 		}
 	}
+}
+
+
+uint16_t reverse12(uint16_t a)
+{
+	uint16_t b= 0;
+	int i;
+
+	for (i= 0; i < 12; i++)
+	{
+		b<<= 1;
+		b|= a & 1;
+		a>>= 1;
+	}
+
+	return b;
 }
