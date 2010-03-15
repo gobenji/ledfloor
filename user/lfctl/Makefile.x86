@@ -1,0 +1,12 @@
+.PHONY : all clean
+
+all: lfctl
+
+CFLAGS= -Wall -g -I../../
+
+clean:
+	rm -f *.o
+	rm -f lfctl
+
+
+lfctl: lfctl.c
