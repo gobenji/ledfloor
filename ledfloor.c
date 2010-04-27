@@ -124,32 +124,33 @@ static struct ledfloor_config
 	.latch_ndelay = 2000,
 	.clk_ndelay = 2000,
 };
-/* Gamma correction table, gamma = 2.2, upconvert 8 to 12 bits and reverse the
- * bit order
+/* Gamma correction table, gamma = 2.2, upconvert 8 to 12 bits, reverse the
+ * bit order and invert the bits
  * Generated using gammatable.py
  */
 static uint16_t gamma_c[256] = {
-	0, 0, 0, 0, 0, 2048, 2048, 1024, 1024, 3072, 3072, 512, 2560, 1536, 3584,
-	256, 2304, 3328, 768, 1792, 3840, 2176, 3200, 2688, 3712, 2432, 3456,
-	2944, 64, 1088, 2624, 320, 3392, 1856, 2240, 704, 3776, 3520, 1984, 1056,
-	1568, 2336, 2848, 1184, 1696, 1440, 4000, 3168, 352, 2912, 1248, 3808,
-	992, 2064, 3600, 784, 1168, 400, 1936, 592, 1360, 208, 1744, 3024, 560,
-	1328, 2224, 432, 112, 3696, 1904, 1776, 2032, 2568, 2824, 2696, 1928,
-	1608, 1864, 3784, 40, 296, 2216, 3496, 616, 2920, 3816, 24, 1304, 664,
-	1944, 344, 3288, 3032, 312, 3256, 3000, 376, 760, 4088, 1284, 1668, 2116,
-	2884, 2500, 2596, 1188, 1956, 3428, 3812, 532, 2196, 1940, 3412, 2516,
-	1588, 692, 1140, 244, 2036, 780, 1420, 2380, 3788, 1580, 2732, 620, 748,
-	3100, 1180, 1116, 1244, 1084, 1212, 1148, 3324, 3074, 642, 2626, 1730,
-	3618, 418, 1378, 3554, 2834, 3986, 2258, 3122, 2738, 370, 1522, 2826, 74,
-	3274, 1578, 1450, 2922, 2074, 2714, 2394, 3034, 2234, 2682, 1530, 3846,
-	582, 2502, 1830, 3174, 2534, 1814, 598, 1494, 182, 1654, 3062, 3214, 1358,
-	2094, 430, 3950, 1566, 1950, 1758, 2878, 2686, 3070, 1665, 1857, 3617,
-	4001, 481, 2193, 3409, 561, 1969, 3825, 2185, 3401, 2601, 105, 1513, 2713,
-	3929, 1337, 1657, 2053, 901, 453, 677, 3941, 789, 341, 565, 2165, 3061,
-	1421, 3789, 685, 1261, 3869, 2909, 3389, 2429, 3587, 2627, 547, 1123,
-	2067, 83, 4051, 4019, 2035, 1931, 1995, 2987, 2027, 1947, 2011, 4027, 7,
-	2119, 1063, 3175, 535, 1623, 311, 1399, 783, 1871, 175, 3311, 1695, 2527,
-	959, 4095
+	4095, 4095, 4095, 4095, 4095, 2047, 2047, 3071, 3071, 1023, 1023,
+	3583, 1535, 2559, 511, 3839, 1791, 767, 3327, 2303, 255, 1919, 895,
+	1407, 383, 1663, 639, 1151, 4031, 3007, 1471, 3775, 703, 2239, 1855,
+	3391, 319, 575, 2111, 3039, 2527, 1759, 1247, 2911, 2399, 2655, 95,
+	927, 3743, 1183, 2847, 287, 3103, 2031, 495, 3311, 2927, 3695, 2159,
+	3503, 2735, 3887, 2351, 1071, 3535, 2767, 1871, 3663, 3983, 399, 2191,
+	2319, 2063, 1527, 1271, 1399, 2167, 2487, 2231, 311, 4055, 3799, 1879,
+	599, 3479, 1175, 279, 4071, 2791, 3431, 2151, 3751, 807, 1063, 3783,
+	839, 1095, 3719, 3335, 7, 2811, 2427, 1979, 1211, 1595, 1499, 2907,
+	2139, 667, 283, 3563, 1899, 2155, 683, 1579, 2507, 3403, 2955, 3851,
+	2059, 3315, 2675, 1715, 307, 2515, 1363, 3475, 3347, 995, 2915, 2979,
+	2851, 3011, 2883, 2947, 771, 1021, 3453, 1469, 2365, 477, 3677, 2717,
+	541, 1261, 109, 1837, 973, 1357, 3725, 2573, 1269, 4021, 821, 2517,
+	2645, 1173, 2021, 1381, 1701, 1061, 1861, 1413, 2565, 249, 3513, 1593,
+	2265, 921, 1561, 2281, 3497, 2601, 3913, 2441, 1033, 881, 2737, 2001,
+	3665, 145, 2529, 2145, 2337, 1217, 1409, 1025, 2430, 2238, 478, 94,
+	3614, 1902, 686, 3534, 2126, 270, 1910, 694, 1494, 3990, 2582, 1382,
+	166, 2758, 2438, 2042, 3194, 3642, 3418, 154, 3306, 3754, 3530, 1930,
+	1034, 2674, 306, 3410, 2834, 226, 1186, 706, 1666, 508, 1468, 3548,
+	2972, 2028, 4012, 44, 76, 2060, 2164, 2100, 1108, 2068, 2148, 2084,
+	68, 4088, 1976, 3032, 920, 3560, 2472, 3784, 2696, 3312, 2224, 3920,
+	784, 2400, 1568, 3136, 0
 };
 
 static int clk_mask, latch_mask;
@@ -170,17 +171,17 @@ static int __init gpio_init(const struct ledfloor_config *config)
 	int errno;
 	unsigned int reverse_index[LFROWS];
 
-	if ((errno = gpio_direction_output(config->blank, 0))) {
+	if ((errno = gpio_direction_output(config->blank, 1))) {
 		printk(KERN_ERR "ledfloor gpio_init, failed to "
 			"register blank line\n");
 		return errno;
 	}
-	if ((errno = gpio_direction_output(config->latch, 0))) {
+	if ((errno = gpio_direction_output(config->latch, 1))) {
 		printk(KERN_ERR "ledfloor gpio_init, failed to "
 			"register latch line\n");
 		return errno;
 	}
-	if ((errno = gpio_direction_output(config->clk, 0))) {
+	if ((errno = gpio_direction_output(config->clk, 1))) {
 		printk(KERN_ERR "ledfloor gpio_init, failed to "
 			"register clock line\n");
 		return errno;
@@ -188,7 +189,7 @@ static int __init gpio_init(const struct ledfloor_config *config)
 
 	for (i = 0; i < ARRAY_SIZE(config->data); i++)
 	{
-		if ((errno = gpio_direction_output(config->data[i], 0))) {
+		if ((errno = gpio_direction_output(config->data[i], 1))) {
 			printk(KERN_ERR "ledfloor gpio_init, failed to "
 				"register data line %d\n", i);
 			return errno;
@@ -239,7 +240,7 @@ static inline void output_col_component(uint8_t *buffer, const struct
 	for (k = 0; k < 12; k++) {
 		uint32_t output_value = 0;
 
-		__raw_writel(clk_mask, clk_reg_clear);
+		__raw_writel(clk_mask, clk_reg_set);
 
 		for (j = ARRAY_SIZE(component_values) - 1; j >= 0; j--) {
 			output_value <<= 1;
@@ -249,7 +250,7 @@ static inline void output_col_component(uint8_t *buffer, const struct
 		__raw_writel(output_value, data_reg);
 
 		ndelay(config->clk_ndelay);
-		__raw_writel(clk_mask, clk_reg_set);
+		__raw_writel(clk_mask, clk_reg_clear);
 		ndelay(config->clk_ndelay);
 	}
 }
@@ -265,12 +266,13 @@ static void write_frame(uint8_t *buffer, const struct ledfloor_config *config)
 	// LED "B" is active low
 	gpio_set_value(GPIO_PIN_PE(19), 0);
 
-	write_mask = __raw_readl((void*) (0xffe02800 + ((config->data[0] >> 5)
+	write_mask = __raw_readl((void*) (GPIO_HW_BASE +
+			(GPIO_BANK(config->data[0])
 				* 0x400) + PIO_OWSR));
-	__raw_writel((1 << LFROWS) - 1, (void*) (0xffe02800 + ((config->data[0] >>
-					5) * 0x400) + PIO_OWER));
+	__raw_writel((1 << LFROWS) - 1, (void*) (GPIO_HW_BASE +
+			(GPIO_BANK(config->data[0]) * 0x400) + PIO_OWER));
 
-	__raw_writel(latch_mask, latch_reg_clear);
+	__raw_writel(latch_mask, latch_reg_set);
 	if (config->rotate) {
 		for (i = 0; i < LFCOLS * 3; i++) {
 			output_col_component(buffer, config, i);
@@ -282,11 +284,11 @@ static void write_frame(uint8_t *buffer, const struct ledfloor_config *config)
 		}
 	}
 	ndelay(config->latch_ndelay);
-	__raw_writel(latch_mask, latch_reg_set);
+	__raw_writel(latch_mask, latch_reg_clear);
 	ndelay(config->latch_ndelay);
 
-	__raw_writel(write_mask, (void*) (0xffe02800 + ((GPIO_PIOB_BASE >> 5) *
-				0x400) + PIO_OWSR));
+	__raw_writel(write_mask, (void*) (GPIO_HW_BASE +
+			(GPIO_BANK(GPIO_PIOB_BASE) * 0x400) + PIO_OWSR));
 
 	gpio_set_value(GPIO_PIN_PE(19), 1);
 
